@@ -7,13 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "db:generate": "npx prisma generate",
+    "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.js",
-    "db:reset": "node scripts/reset-db.js",
     "db:studio": "prisma studio",
-    "db:migrate": "prisma migrate deploy",
-    "postinstall": "prisma generate"
+    "db:reset": "prisma migrate reset --force",
+    "postinstall": "prisma generate",
+    "deploy:setup": "node scripts/deploy-setup.js",
+    "vercel-build": "prisma generate && next build"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
