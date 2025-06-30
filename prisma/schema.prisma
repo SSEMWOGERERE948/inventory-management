@@ -3,189 +3,178 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.NVarChar(Max)
+  access_token      String? @db.NVarChar(Max)
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.NVarChar(Max)
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  password  String
-  role      Role     @default(USER)
-  companyId String?
-  company   Company? @relation(fields: [companyId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  password      String?
+  emailVerified DateTime?
+  image         String?
+  role          String    @default("USER")
+  isActive      Boolean   @default(true)
+  companyId     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  // Relations
-  orders   OrderRequest[]
-  payments Payment[]
-  expenses Expense[]
+  accounts      Account[]
+  sessions      Session[]
+  company       Company?        @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  orderRequests OrderRequest[]
+  products      Product[]
+  payments      Payment[]
+  expenses      Expense[]
+}
 
-  @@map("users")
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
 }
 
 model Company {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  name      String   @unique
+  email     String   @unique
+  phone     String?
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  // Relations
-  users        User[]
-  products     Product[]
-  categories   Category[]
-  orders       OrderRequest[]
-  stockAlerts  StockAlert[]
-
-  @@map("companies")
+  users         User[]
+  products      Product[]
+  orderRequests OrderRequest[]
+  payments      Payment[]
+  expenses      Expense[]
 }
 
 model Category {
-  id          String   @id @default(cuid())
-  name        String
+  id          String    @id @default(cuid())
+  name        String    @unique
   description String?
-  companyId   String
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  // Relations
   products Product[]
-
-  @@map("categories")
 }
 
 model Product {
-  id                String   @id @default(cuid())
-  name              String
-  description       String?
-  sku               String   @unique
-  price             Decimal  @db.Decimal(10, 2)
-  quantity          Int      @default(0)
-  lowStockThreshold Int      @default(10)
-  categoryId        String?
-  category          Category? @relation(fields: [categoryId], references: [id])
-  companyId         String
-  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  sku         String   @unique
+  price       Decimal  @db.Decimal(10, 2)
+  quantity    Int      @default(0)
+  minStock    Int      @default(0)
+  maxStock    Int?
+  isActive    Boolean  @default(true)
+  companyId   String
+  categoryId  String?
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  // Relations
-  orderItems   OrderItem[]
-  stockAlerts  StockAlert[]
-
-  @@map("products")
+  company       Company            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  category      Category?          @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy     User               @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  orderItems    OrderRequestItem[]
 }
 
 model OrderRequest {
-  id          String      @id @default(cuid())
-  userId      String
-  user        User        @relation(fields: [userId], references: [id])
-  companyId   String
-  company     Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  status      OrderStatus @default(PENDING)
-  totalAmount Decimal?    @db.Decimal(10, 2)
+  id          String            @id @default(cuid())
+  status      String            @default("PENDING")
+  totalAmount Decimal           @db.Decimal(10, 2)
   notes       String?
+  companyId   String
+  userId      String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
   approvedAt  DateTime?
   rejectedAt  DateTime?
   fulfilledAt DateTime?
   shippedAt   DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
 
-  // Relations
-  items OrderItem[]
-
-  @@map("order_requests")
+  company   Company            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user      User               @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  items     OrderRequestItem[]
 }
 
-model OrderItem {
-  id         String       @id @default(cuid())
-  orderId    String
-  order      OrderRequest @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId  String
-  product    Product      @relation(fields: [productId], references: [id])
-  quantity   Int
-  unitPrice  Decimal      @db.Decimal(10, 2)
-  totalPrice Decimal      @db.Decimal(10, 2)
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+model OrderRequestItem {
+  id             String  @id @default(cuid())
+  quantity       Int
+  unitPrice      Decimal @db.Decimal(10, 2)
+  totalPrice     Decimal @db.Decimal(10, 2)
+  orderRequestId String
+  productId      String
 
-  @@map("order_items")
+  orderRequest OrderRequest @relation(fields: [orderRequestId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([orderRequestId, productId])
 }
 
 model Payment {
   id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
   amount      Decimal  @db.Decimal(10, 2)
   description String
   receiptUrl  String?
   paymentDate DateTime
+  userId      String
+  companyId   String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@map("payments")
+  user    User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  company Company @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model Expense {
   id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
   amount      Decimal  @db.Decimal(10, 2)
   description String
   category    String?
   receiptUrl  String?
   expenseDate DateTime
+  userId      String
+  companyId   String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@map("expenses")
-}
-
-model StockAlert {
-  id        String           @id @default(cuid())
-  productId String
-  product   Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
-  companyId String
-  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  type      StockAlertType   @default(LOW_STOCK)
-  status    StockAlertStatus @default(ACTIVE)
-  threshold Int
-  message   String
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
-
-  @@map("stock_alerts")
-}
-
-enum Role {
-  USER
-  COMPANY_DIRECTOR
-  ADMIN
-}
-
-enum OrderStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  FULFILLED
-  SHIPPED
-  CANCELLED
-}
-
-enum StockAlertType {
-  LOW_STOCK
-  OUT_OF_STOCK
-  REORDER_POINT
-}
-
-enum StockAlertStatus {
-  ACTIVE
-  RESOLVED
-  DISMISSED
+  user    User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  company Company @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }

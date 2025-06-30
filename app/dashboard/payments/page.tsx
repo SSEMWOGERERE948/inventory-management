@@ -12,8 +12,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
-import { CreditCard, Plus, Upload, Camera, X, Eye } from "lucide-react"
+import { CreditCard, Plus, Upload, Camera, X, Eye, AlertTriangle, DollarSign, Receipt } from "lucide-react"
 
 interface Payment {
   id: string
@@ -24,10 +25,19 @@ interface Payment {
   createdAt: string
 }
 
+interface UserBalance {
+  totalOrderAmount: number
+  totalPayments: number
+  outstandingBalance: number
+  orders: number
+  payments: number
+}
+
 export default function PaymentsPage() {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [payments, setPayments] = useState<Payment[]>([])
+  const [userBalance, setUserBalance] = useState<UserBalance | null>(null)
   const [loading, setLoading] = useState(true)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -44,22 +54,18 @@ export default function PaymentsPage() {
   const [description, setDescription] = useState("")
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split("T")[0])
 
-  const mockUser = {
-    name: "John Smith",
-    email: "user@demo.com",
-    role: "USER",
-    companyName: "TechCorp Solutions",
-  }
-
   useEffect(() => {
-    fetchPayments()
+    if (session) {
+      fetchPayments()
+      fetchUserBalance()
+    }
     return () => {
       // Cleanup camera stream
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop())
       }
     }
-  }, [])
+  }, [session])
 
   const fetchPayments = async () => {
     try {
@@ -74,6 +80,20 @@ export default function PaymentsPage() {
       toast.error("Error fetching payments")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchUserBalance = async () => {
+    try {
+      const response = await fetch("/api/user/balance")
+      if (response.ok) {
+        const data = await response.json()
+        setUserBalance(data)
+      } else {
+        console.error("Failed to fetch user balance")
+      }
+    } catch (error) {
+      console.error("Error fetching user balance:", error)
     }
   }
 
@@ -207,6 +227,7 @@ export default function PaymentsPage() {
         setIsCreateDialogOpen(false)
         resetForm()
         fetchPayments()
+        fetchUserBalance() // Refresh balance after payment
       } else {
         const error = await response.json()
         toast.error(error.error || "Failed to record payment")
@@ -241,24 +262,76 @@ export default function PaymentsPage() {
   // Helper function to safely format currency
   const formatCurrency = (amount: number): string => {
     if (typeof amount !== "number" || isNaN(amount) || !isFinite(amount)) {
-      return "UGX 0.00"
+      return "UGX 0"
     }
-    return `UGX ${amount.toFixed(2)}`
+    return `UGX ${amount.toLocaleString()}`
   }
 
-  if (!session) {
+  // Create user object with fallbacks
+  const user = {
+    name: session?.user?.name || "User",
+    email: session?.user?.email || "",
+    role: (session?.user?.role as string) || "USER",
+    companyName: (session?.user?.companyName as string) || "Your Company",
+  }
+
+  const userRole = (session?.user?.role as string) || "USER"
+  const companyName = (session?.user?.companyName as string) || "Your Company"
+
+  // Show loading state while session is loading
+  if (status === "loading") {
     return (
       <div className="flex h-screen bg-background">
-        <Sidebar userRole="USER" companyName="TechCorp Solutions" />
+        <Sidebar userRole="USER" companyName="Loading..." />
         <MobileSidebar
           userRole="USER"
-          companyName="TechCorp Solutions"
+          companyName="Loading..."
           isOpen={isMobileMenuOpen}
           onClose={() => setIsMobileMenuOpen(false)}
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">
-          <Header user={mockUser} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
+          <Header
+            user={{
+              name: "Loading...",
+              email: "",
+              role: "USER",
+              companyName: "Loading...",
+            }}
+            onMobileMenuToggle={() => setIsMobileMenuOpen(true)}
+          />
+
+          <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+            <div className="max-w-7xl mx-auto space-y-6">
+              <div className="flex items-center justify-center h-64">Loading...</div>
+            </div>
+          </main>
+        </div>
+      </div>
+    )
+  }
+
+  if (!session) {
+    return (
+      <div className="flex h-screen bg-background">
+        <Sidebar userRole="USER" companyName="Your Company" />
+        <MobileSidebar
+          userRole="USER"
+          companyName="Your Company"
+          isOpen={isMobileMenuOpen}
+          onClose={() => setIsMobileMenuOpen(false)}
+        />
+
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <Header
+            user={{
+              name: "Guest",
+              email: "",
+              role: "USER",
+              companyName: "Your Company",
+            }}
+            onMobileMenuToggle={() => setIsMobileMenuOpen(true)}
+          />
 
           <main className="flex-1 overflow-y-auto p-4 lg:p-6">
             <div className="max-w-7xl mx-auto space-y-6">
@@ -272,16 +345,16 @@ export default function PaymentsPage() {
 
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar userRole="USER" companyName="TechCorp Solutions" />
+      <Sidebar userRole={userRole} companyName={companyName} />
       <MobileSidebar
-        userRole="USER"
-        companyName="TechCorp Solutions"
+        userRole={userRole}
+        companyName={companyName}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={mockUser} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
+        <Header user={user} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="max-w-7xl mx-auto space-y-6">
@@ -425,18 +498,93 @@ export default function PaymentsPage() {
               </Dialog>
             </div>
 
-            {/* Summary Card */}
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Payments</p>
-                    <p className="text-3xl font-bold">{formatCurrency(getTotalPayments())}</p>
+            {/* Balance Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Outstanding Balance Card */}
+              <Card
+                className={
+                  userBalance?.outstandingBalance && userBalance.outstandingBalance > 0
+                    ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950"
+                    : ""
+                }
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Outstanding Balance</p>
+                      <p
+                        className={`text-3xl font-bold ${userBalance?.outstandingBalance && userBalance.outstandingBalance > 0 ? "text-red-600" : "text-green-600"}`}
+                      >
+                        {formatCurrency(userBalance?.outstandingBalance || 0)}
+                      </p>
+                      {userBalance?.outstandingBalance && userBalance.outstandingBalance > 0 && (
+                        <p className="text-xs text-red-600">Amount owed to company</p>
+                      )}
+                    </div>
+                    {userBalance?.outstandingBalance && userBalance.outstandingBalance > 0 ? (
+                      <AlertTriangle className="w-12 h-12 text-red-500" />
+                    ) : (
+                      <DollarSign className="w-12 h-12 text-green-500" />
+                    )}
                   </div>
-                  <CreditCard className="w-12 h-12 text-muted-foreground" />
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+
+              {/* Total Orders Card */}
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Orders</p>
+                      <p className="text-3xl font-bold">{formatCurrency(userBalance?.totalOrderAmount || 0)}</p>
+                      <p className="text-xs text-muted-foreground">{userBalance?.orders || 0} approved orders</p>
+                    </div>
+                    <Receipt className="w-12 h-12 text-muted-foreground" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Total Payments Card */}
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Payments</p>
+                      <p className="text-3xl font-bold">{formatCurrency(getTotalPayments())}</p>
+                      <p className="text-xs text-muted-foreground">{payments.length} payments made</p>
+                    </div>
+                    <CreditCard className="w-12 h-12 text-muted-foreground" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Outstanding Balance Alert */}
+            {userBalance?.outstandingBalance && userBalance.outstandingBalance > 0 && (
+              <Card className="border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
+                <CardContent className="p-6">
+                  <div className="flex items-start gap-4">
+                    <AlertTriangle className="h-6 w-6 text-orange-600 mt-1" />
+                    <div>
+                      <h3 className="font-semibold text-orange-800 dark:text-orange-200">Payment Required</h3>
+                      <p className="text-sm text-orange-700 dark:text-orange-300 mt-1">
+                        You have an outstanding balance of{" "}
+                        <strong>{formatCurrency(userBalance.outstandingBalance)}</strong> from approved orders. Please
+                        make a payment to clear your balance.
+                      </p>
+                      <div className="mt-3 flex gap-2">
+                        <Badge variant="outline" className="text-orange-700 border-orange-300">
+                          {userBalance.orders} Orders: {formatCurrency(userBalance.totalOrderAmount)}
+                        </Badge>
+                        <Badge variant="outline" className="text-green-700 border-green-300">
+                          {userBalance.payments} Payments: {formatCurrency(userBalance.totalPayments)}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader>

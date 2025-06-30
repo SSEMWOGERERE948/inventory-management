@@ -39,7 +39,7 @@ const expenseCategories = [
 ]
 
 export default function ExpensesPage() {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [loading, setLoading] = useState(true)
@@ -59,22 +59,17 @@ export default function ExpensesPage() {
   const [category, setCategory] = useState("")
   const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split("T")[0])
 
-  const mockUser = {
-    name: "John Smith",
-    email: "user@demo.com",
-    role: "USER",
-    companyName: "TechCorp Solutions",
-  }
-
   useEffect(() => {
-    fetchExpenses()
+    if (session) {
+      fetchExpenses()
+    }
     return () => {
       // Cleanup camera stream
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop())
       }
     }
-  }, [])
+  }, [session])
 
   const fetchExpenses = async () => {
     try {
@@ -100,12 +95,10 @@ export default function ExpensesPage() {
         toast.error("File size must be less than 5MB")
         return
       }
-
       if (!file.type.startsWith("image/")) {
         toast.error("Please select an image file")
         return
       }
-
       setSelectedFile(file)
       const url = URL.createObjectURL(file)
       setPreviewUrl(url)
@@ -275,7 +268,7 @@ export default function ExpensesPage() {
       if (amount === undefined || amount === null || isNaN(numAmount) || !isFinite(numAmount)) {
         return "UGX 0.00"
       }
-      return `UGX ${numAmount.toFixed(2)}`
+      return `UGX ${numAmount.toLocaleString()}`
     } catch (error) {
       console.error("Error formatting currency:", error)
       return "UGX 0.00"
@@ -315,20 +308,38 @@ export default function ExpensesPage() {
 
   const topCategory = getTopCategory()
 
+  // Loading state
+  if (status === "loading") {
+    return (
+      <div className="flex h-screen bg-background">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">Loading...</div>
+        </div>
+      </div>
+    )
+  }
+
+  // Not authenticated
   if (!session) {
     return (
       <div className="flex h-screen bg-background">
-        <Sidebar userRole="USER" companyName="TechCorp Solutions" />
+        <Sidebar userRole="USER" companyName="Your Company" />
         <MobileSidebar
           userRole="USER"
-          companyName="TechCorp Solutions"
+          companyName="Your Company"
           isOpen={isMobileMenuOpen}
           onClose={() => setIsMobileMenuOpen(false)}
         />
-
         <div className="flex-1 flex flex-col overflow-hidden">
-          <Header user={mockUser} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
-
+          <Header
+            user={{
+              name: "User",
+              email: "",
+              role: "USER",
+              companyName: "Your Company",
+            }}
+            onMobileMenuToggle={() => setIsMobileMenuOpen(true)}
+          />
           <main className="flex-1 overflow-y-auto p-4 lg:p-6">
             <div className="max-w-7xl mx-auto space-y-6">
               <div className="flex items-center justify-center h-64">Please sign in to view expenses</div>
@@ -339,18 +350,25 @@ export default function ExpensesPage() {
     )
   }
 
+  // Create user object from session
+  const user = {
+    name: session.user?.name || "User",
+    email: session.user?.email || "",
+    role: (session.user?.role as string) || "USER",
+    companyName: (session.user?.companyName as string) || "Your Company",
+  }
+
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar userRole="USER" companyName="TechCorp Solutions" />
+      <Sidebar userRole={user.role} companyName={user.companyName} />
       <MobileSidebar
-        userRole="USER"
-        companyName="TechCorp Solutions"
+        userRole={user.role}
+        companyName={user.companyName}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
       />
-
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={mockUser} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
+        <Header user={user} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="max-w-7xl mx-auto space-y-6">

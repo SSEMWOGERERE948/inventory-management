@@ -1,243 +1,169 @@
-const { PrismaClient } = require("@prisma/client")
-const bcrypt = require("bcryptjs")
+import { PrismaClient } from "@prisma/client"
+import bcrypt from "bcryptjs"
 
 const prisma = new PrismaClient()
 
 async function main() {
-  console.log("🌱 Starting database seeding...")
+  console.log("🌱 Starting database seed...")
+
+  // Hash password once for reuse (using password123 to match your sign-in page)
+  const hashedPassword = await bcrypt.hash("password123", 12)
 
   try {
-    // Create companies
-    const company1 = await prisma.company.upsert({
+    // Create companies first
+    const techCorp = await prisma.company.upsert({
       where: { name: "TechCorp Solutions" },
       update: {},
       create: {
         name: "TechCorp Solutions",
-        description: "Technology solutions company",
+        email: "contact@techcorp.com",
+        phone: "+1-555-0123",
+        address: "123 Tech Street, Silicon Valley, CA 94000",
       },
     })
 
-    const company2 = await prisma.company.upsert({
-      where: { name: "Global Enterprises" },
+    const globalIndustries = await prisma.company.upsert({
+      where: { name: "Global Industries" },
       update: {},
       create: {
-        name: "Global Enterprises",
-        description: "Global business solutions",
+        name: "Global Industries",
+        email: "info@globalind.com",
+        phone: "+1-555-0456",
+        address: "456 Business Ave, New York, NY 10001",
       },
     })
 
     console.log("✅ Companies created")
 
-    // Create categories
-    const categories = [
-      { name: "Electronics", description: "Electronic devices and components" },
-      { name: "Office Supplies", description: "Office equipment and supplies" },
-      { name: "Software", description: "Software licenses and tools" },
-      { name: "Hardware", description: "Computer hardware and accessories" },
-    ]
-
-    for (const categoryData of categories) {
-      await prisma.category.upsert({
-        where: { name: categoryData.name },
-        update: {},
-        create: {
-          ...categoryData,
-          companyId: company1.id,
-        },
-      })
-    }
-
-    console.log("✅ Categories created")
-
-    // Create users
-    const hashedPassword = await bcrypt.hash("password123", 12)
-
+    // Create admin user (matches your sign-in page)
     const adminUser = await prisma.user.upsert({
-      where: { email: "admin@demo.com" },
+      where: { email: "admin@inventory.com" },
       update: {},
       create: {
-        name: "Admin User",
-        email: "admin@demo.com",
+        email: "admin@inventory.com",
+        name: "System Administrator",
         password: hashedPassword,
         role: "ADMIN",
-        companyId: company1.id,
+        isActive: true,
+        companyId: techCorp.id,
       },
     })
 
-    const directorUser = await prisma.user.upsert({
-      where: { email: "director@demo.com" },
+    // Create company director (matches your sign-in page)
+    const techDirector = await prisma.user.upsert({
+      where: { email: "director@techcorp.com" },
       update: {},
       create: {
-        name: "Director User",
-        email: "director@demo.com",
+        email: "director@techcorp.com",
+        name: "John Director",
         password: hashedPassword,
         role: "COMPANY_DIRECTOR",
-        companyId: company1.id,
+        isActive: true,
+        companyId: techCorp.id,
       },
     })
 
-    const regularUser = await prisma.user.upsert({
-      where: { email: "user@demo.com" },
+    // Create regular user (matches your sign-in page)
+    await prisma.user.upsert({
+      where: { email: "user1@techcorp.com" },
       update: {},
       create: {
-        name: "Regular User",
-        email: "user@demo.com",
+        email: "user1@techcorp.com",
+        name: "Alice User",
         password: hashedPassword,
         role: "USER",
-        companyId: company1.id,
+        isActive: true,
+        companyId: techCorp.id,
+      },
+    })
+
+    // Create additional users for Global Industries
+    const globalDirector = await prisma.user.upsert({
+      where: { email: "director@globalind.com" },
+      update: {},
+      create: {
+        email: "director@globalind.com",
+        name: "Jane Director",
+        password: hashedPassword,
+        role: "COMPANY_DIRECTOR",
+        isActive: true,
+        companyId: globalIndustries.id,
+      },
+    })
+
+    await prisma.user.upsert({
+      where: { email: "user2@globalind.com" },
+      update: {},
+      create: {
+        email: "user2@globalind.com",
+        name: "Bob User",
+        password: hashedPassword,
+        role: "USER",
+        isActive: true,
+        companyId: globalIndustries.id,
       },
     })
 
     console.log("✅ Users created")
 
-    // Get categories for products
-    const electronicsCategory = await prisma.category.findFirst({
-      where: { name: "Electronics" },
-    })
-
-    const officeCategory = await prisma.category.findFirst({
-      where: { name: "Office Supplies" },
-    })
-
-    // Create products
-    const products = [
-      {
+    // Create some sample products
+    await prisma.product.create({
+      data: {
         name: "Laptop Dell XPS 13",
-        description: "High-performance laptop for business use",
-        sku: "DELL-XPS-13-001",
-        price: 1299.99,
+        description: "High-performance ultrabook for business use",
+        sku: "DELL-XPS13-001",
         quantity: 25,
-        minStockLevel: 5,
-        maxStockLevel: 50,
-        reorderPoint: 10,
-        categoryId: electronicsCategory?.id,
-        companyId: company1.id,
-        createdById: adminUser.id,
+        minStock: 5,
+        price: 1299.99,
+        companyId: techCorp.id,
+        createdById: adminUser.id, // Add this line
       },
-      {
-        name: "Wireless Mouse",
-        description: "Ergonomic wireless mouse",
-        sku: "MOUSE-WL-001",
-        price: 29.99,
-        quantity: 100,
-        minStockLevel: 20,
-        maxStockLevel: 200,
-        reorderPoint: 30,
-        categoryId: electronicsCategory?.id,
-        companyId: company1.id,
-        createdById: adminUser.id,
-      },
-      {
-        name: "Office Chair",
-        description: "Ergonomic office chair with lumbar support",
-        sku: "CHAIR-ERG-001",
-        price: 299.99,
-        quantity: 15,
-        minStockLevel: 3,
-        maxStockLevel: 30,
-        reorderPoint: 5,
-        categoryId: officeCategory?.id,
-        companyId: company1.id,
-        createdById: adminUser.id,
-      },
-      {
-        name: "Printer Paper A4",
-        description: "High-quality A4 printer paper (500 sheets)",
-        sku: "PAPER-A4-500",
-        price: 12.99,
-        quantity: 200,
-        minStockLevel: 50,
-        maxStockLevel: 500,
-        reorderPoint: 75,
-        categoryId: officeCategory?.id,
-        companyId: company1.id,
-        createdById: adminUser.id,
-      },
-    ]
+    })
 
-    for (const productData of products) {
-      await prisma.product.upsert({
-        where: { sku: productData.sku },
-        update: {},
-        create: productData,
-      })
-    }
+    await prisma.product.create({
+      data: {
+        name: "Wireless Mouse",
+        description: "Bluetooth wireless mouse",
+        sku: "MOUSE-BT-001",
+        quantity: 100,
+        minStock: 20,
+        price: 49.99,
+        companyId: techCorp.id,
+        createdById: adminUser.id, // Add this line
+      },
+    })
+
+    await prisma.product.create({
+      data: {
+        name: "Office Chair Ergonomic",
+        description: "Comfortable ergonomic office chair",
+        sku: "CHAIR-ERG-001",
+        quantity: 15,
+        minStock: 3,
+        price: 299.99,
+        companyId: globalIndustries.id,
+        createdById: globalDirector.id, // Add this line
+      },
+    })
 
     console.log("✅ Products created")
 
-    // Create sample orders
-    const laptop = await prisma.product.findFirst({ where: { sku: "DELL-XPS-13-001" } })
-    const mouse = await prisma.product.findFirst({ where: { sku: "MOUSE-WL-001" } })
-
-    if (laptop && mouse) {
-      const order = await prisma.orderRequest.create({
-        data: {
-          userId: regularUser.id,
-          companyId: company1.id,
-          status: "PENDING",
-          totalAmount: 1359.97, // 1299.99 + 59.98
-          notes: "Urgent order for new employee setup",
-          items: {
-            create: [
-              {
-                productId: laptop.id,
-                quantity: 1,
-                unitPrice: laptop.price,
-                totalPrice: laptop.price,
-              },
-              {
-                productId: mouse.id,
-                quantity: 2,
-                unitPrice: mouse.price,
-                totalPrice: mouse.price * 2,
-              },
-            ],
-          },
-        },
-      })
-
-      console.log("✅ Sample orders created")
-    }
-
-    // Create sample payments
-    await prisma.payment.create({
-      data: {
-        userId: regularUser.id,
-        companyId: company1.id,
-        amount: 150.0,
-        description: "Office supplies purchase",
-        paymentDate: new Date(),
-      },
-    })
-
-    // Create sample expenses
-    await prisma.expense.create({
-      data: {
-        userId: regularUser.id,
-        companyId: company1.id,
-        amount: 75.5,
-        description: "Business lunch with client",
-        category: "Meals & Entertainment",
-        expenseDate: new Date(),
-      },
-    })
-
-    console.log("✅ Sample payments and expenses created")
-
-    console.log("🎉 Database seeding completed successfully!")
-    console.log("\n📋 Demo Accounts:")
-    console.log("Admin: admin@demo.com / password123")
-    console.log("Director: director@demo.com / password123")
-    console.log("User: user@demo.com / password123")
+    console.log("🎉 Database seeded successfully!")
+    console.log("\n📋 Test Accounts (password: password123):")
+    console.log("Admin: admin@inventory.com")
+    console.log("Director 1: director@techcorp.com")
+    console.log("Director 2: director@globalind.com")
+    console.log("User 1: user1@techcorp.com")
+    console.log("User 2: user2@globalind.com")
   } catch (error) {
-    console.error("❌ Error during seeding:", error)
+    console.error("❌ Seed error:", error)
     throw error
   }
 }
 
 main()
   .catch((e) => {
-    console.error(e)
+    console.error("❌ Seed failed:", e)
     process.exit(1)
   })
   .finally(async () => {

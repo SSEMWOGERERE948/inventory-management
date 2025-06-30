@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useSession } from "next-auth/react"
 import { Sidebar, MobileSidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -43,6 +44,7 @@ const EXPENSE_CATEGORIES = [
 ]
 
 export default function DirectorExpensesPage() {
+  const { data: session } = useSession()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [loading, setLoading] = useState(true)
@@ -54,16 +56,11 @@ export default function DirectorExpensesPage() {
   const [userFilter, setUserFilter] = useState("")
   const [dateFilter, setDateFilter] = useState("")
 
-  const mockUser = {
-    name: "Director Smith",
-    email: "director@demo.com",
-    role: "COMPANY_DIRECTOR",
-    companyName: "TechCorp Solutions",
-  }
-
   useEffect(() => {
-    fetchExpenses()
-  }, [])
+    if (session?.user?.role === "COMPANY_DIRECTOR") {
+      fetchExpenses()
+    }
+  }, [session])
 
   const fetchExpenses = async () => {
     try {
@@ -123,24 +120,49 @@ export default function DirectorExpensesPage() {
     URL.revokeObjectURL(url)
   }
 
+  const formatCurrency = (amount: number): string => {
+    if (typeof amount !== "number" || isNaN(amount) || !isFinite(amount)) {
+      return "UGX 0.00"
+    }
+    return `UGX ${amount.toLocaleString()}`
+  }
+
+  if (!session) {
+    return <div className="flex items-center justify-center h-64">Please sign in</div>
+  }
+
+  if (session.user.role !== "COMPANY_DIRECTOR") {
+    return <div className="text-center py-8">Access denied. Director role required.</div>
+  }
+
   if (loading) {
     return <div className="flex items-center justify-center h-64">Loading expenses...</div>
+  }
+
+  const user = {
+    name: session.user.name || "Director",
+    email: session.user.email || "",
+    role: session.user.role || "COMPANY_DIRECTOR",
+    companyName: session.user.companyName || "Your Company",
   }
 
   const categoryTotals = getCategoryTotals()
 
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar userRole="COMPANY_DIRECTOR" companyName="TechCorp Solutions" />
+      <Sidebar
+        userRole={session.user.role || "COMPANY_DIRECTOR"}
+        companyName={session.user.companyName || "Your Company"}
+      />
       <MobileSidebar
-        userRole="COMPANY_DIRECTOR"
-        companyName="TechCorp Solutions"
+        userRole={session.user.role || "COMPANY_DIRECTOR"}
+        companyName={session.user.companyName || "Your Company"}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={mockUser} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
+        <Header user={user} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="max-w-7xl mx-auto space-y-6">
@@ -149,6 +171,7 @@ export default function DirectorExpensesPage() {
                 <h1 className="text-3xl font-bold">Company Expenses</h1>
                 <p className="text-muted-foreground">Monitor and manage company expense reports</p>
               </div>
+
               <Button onClick={exportExpenses} className="gap-2">
                 <Download className="h-4 w-4" />
                 Export CSV
@@ -162,12 +185,13 @@ export default function DirectorExpensesPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Total Expenses</p>
-                      <p className="text-3xl font-bold">ugx{getTotalExpenses().toFixed(2)}</p>
+                      <p className="text-3xl font-bold">{formatCurrency(getTotalExpenses())}</p>
                     </div>
                     <Receipt className="w-12 h-12 text-muted-foreground" />
                   </div>
                 </CardContent>
               </Card>
+
               <Card>
                 <CardContent className="p-6">
                   <div>
@@ -175,7 +199,7 @@ export default function DirectorExpensesPage() {
                     {categoryTotals.length > 0 ? (
                       <div>
                         <p className="text-lg font-semibold">{categoryTotals[0][0]}</p>
-                        <p className="text-sm text-muted-foreground">ugx{categoryTotals[0][1].toFixed(2)}</p>
+                        <p className="text-sm text-muted-foreground">{formatCurrency(categoryTotals[0][1])}</p>
                       </div>
                     ) : (
                       <p className="text-lg font-semibold">No expenses</p>
@@ -183,16 +207,17 @@ export default function DirectorExpensesPage() {
                   </div>
                 </CardContent>
               </Card>
+
               <Card>
                 <CardContent className="p-6">
                   <div>
                     <p className="text-sm text-muted-foreground mb-2">This Month</p>
                     <p className="text-lg font-semibold">
-                      ugx
-                      {filteredExpenses
-                        .filter((e) => new Date(e.expenseDate).getMonth() === new Date().getMonth())
-                        .reduce((sum, e) => sum + e.amount, 0)
-                        .toFixed(2)}
+                      {formatCurrency(
+                        filteredExpenses
+                          .filter((e) => new Date(e.expenseDate).getMonth() === new Date().getMonth())
+                          .reduce((sum, e) => sum + e.amount, 0),
+                      )}
                     </p>
                   </div>
                 </CardContent>
@@ -293,7 +318,7 @@ export default function DirectorExpensesPage() {
                               )}
                             </TableCell>
                             <TableCell className="max-w-xs truncate">{expense.description}</TableCell>
-                            <TableCell className="font-semibold">ugx{expense.amount.toFixed(2)}</TableCell>
+                            <TableCell className="font-semibold">{formatCurrency(expense.amount)}</TableCell>
                             <TableCell>
                               {expense.receiptUrl ? (
                                 <Button variant="outline" size="sm" asChild>
@@ -346,7 +371,7 @@ export default function DirectorExpensesPage() {
                       </div>
                       <div>
                         <Label>Amount</Label>
-                        <p className="text-2xl font-bold">ugx{selectedExpense.amount.toFixed(2)}</p>
+                        <p className="text-2xl font-bold">{formatCurrency(selectedExpense.amount)}</p>
                       </div>
                     </div>
 

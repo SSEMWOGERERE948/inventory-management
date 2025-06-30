@@ -1,7 +1,9 @@
 "use client"
 
 import type React from "react"
+
 import { useEffect, useState } from "react"
+import { useSession } from "next-auth/react"
 import { Sidebar, MobileSidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,19 +11,21 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import { ShoppingCart, Package, Clock, CheckCircle, XCircle, Truck, AlertTriangle, RefreshCw, Bug } from "lucide-react"
+import { ShoppingCart, Clock, CheckCircle, XCircle, Truck, Package, RefreshCw, Bug } from "lucide-react"
 
-interface Product {
+interface OrderItem {
   id: string
-  name: string
-  sku: string
-  price: number
   quantity: number
+  unitPrice: number
+  totalPrice: number
+  product: {
+    id: string
+    name: string
+    sku: string
+  }
 }
 
 interface Order {
@@ -30,138 +34,101 @@ interface Order {
   totalAmount: number
   notes: string
   createdAt: string
+  approvedAt?: string
+  rejectedAt?: string
+  fulfilledAt?: string
+  shippedAt?: string
   user: {
     id: string
     name: string
     email: string
   }
-  items: Array<{
-    id: string
-    quantity: number
-    unitPrice: number
-    totalPrice: number
-    product: {
-      id: string
-      name: string
-      sku: string
-    }
-  }>
+  items: OrderItem[]
+}
+
+interface DebugInfo {
+  session: any
+  ordersSummary: {
+    total: number
+    byCompany: Record<string, number>
+    byStatus: Record<string, number>
+  }
 }
 
 const DirectorOrdersPage: React.FC = () => {
+  const { data: session, status } = useSession()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [orders, setOrders] = useState<Order[]>([])
-  const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [updating, setUpdating] = useState<string | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
-  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
-  const [isRestockDialogOpen, setIsRestockDialogOpen] = useState(false)
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
-  const [restockQuantity, setRestockQuantity] = useState("")
-  const [orderNotes, setOrderNotes] = useState("")
-  const [debugInfo, setDebugInfo] = useState<any>(null)
-
-  const mockUser = {
-    name: "Director Smith",
-    email: "director@demo.com",
-    role: "COMPANY_DIRECTOR",
-    companyName: "TechCorp Solutions",
-  }
+  const [notes, setNotes] = useState("")
+  const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null)
+  const [showDebug, setShowDebug] = useState(false)
 
   useEffect(() => {
-    fetchOrders()
-    fetchProducts()
-  }, [])
-
-
+    if (session) {
+      console.log("Director Orders - Session user:", session.user)
+      fetchOrders()
+    }
+  }, [session])
 
   const fetchOrders = async () => {
+    setLoading(true)
     try {
-      console.log("📋 Fetching orders from /api/director/orders...")
-      setLoading(true)
-
+      console.log("🔄 Fetching director orders...")
       const response = await fetch("/api/director/orders", {
-        method: "GET",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
-        credentials: "include",
       })
 
-      console.log("Orders API response status:", response.status)
+      console.log("📡 Director API Response:", {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+      })
 
       if (response.ok) {
         const data = await response.json()
-        console.log("✅ Orders data received:", data)
-        console.log("Number of orders:", data.length)
+        console.log("✅ Director orders fetched:", data.length, "orders")
         setOrders(data)
       } else {
         const errorText = await response.text()
-        console.error("❌ Failed to fetch orders:", response.status, errorText)
-
-        // Try user API for comparison
-        console.log("🔄 Trying user API for comparison...")
-        try {
-          const userResponse = await fetch("/api/user/orders", {
-            method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            credentials: "include",
-          })
-
-          if (userResponse.ok) {
-            const userData = await userResponse.json()
-            console.log("👤 User orders data (for comparison):", userData)
-            console.log("User orders count:", userData.length)
-          } else {
-            console.log("❌ User API also failed:", userResponse.status)
-          }
-        } catch (userError) {
-          console.error("Error testing user API:", userError)
-        }
-
+        console.error("❌ Director API Error:", errorText)
         toast.error(`Failed to fetch orders: ${response.status}`)
       }
     } catch (error) {
-      console.error("Error fetching orders:", error)
+      console.error("💥 Director orders fetch error:", error)
       toast.error("Error fetching orders")
     } finally {
       setLoading(false)
     }
   }
 
-  const fetchProducts = async () => {
+  const fetchDebugInfo = async () => {
     try {
-      console.log("📦 Fetching products from /api/products...")
+      const [sessionRes, ordersRes] = await Promise.all([fetch("/api/debug/session"), fetch("/api/debug/orders")])
 
-      const response = await fetch("/api/products", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
+      const sessionData = sessionRes.ok ? await sessionRes.json() : null
+      const ordersData = ordersRes.ok ? await ordersRes.json() : null
+
+      setDebugInfo({
+        session: sessionData,
+        ordersSummary: ordersData || { total: 0, byCompany: {}, byStatus: {} },
       })
-
-      console.log("Products API response status:", response.status)
-
-      if (response.ok) {
-        const data = await response.json()
-        console.log("Products data received:", data)
-        console.log("Number of products:", data.length)
-        setProducts(data)
-      } else {
-        const errorText = await response.text()
-        console.error("Failed to fetch products:", response.status, errorText)
-      }
+      setShowDebug(true)
     } catch (error) {
-      console.error("Error fetching products:", error)
+      console.error("Debug info fetch error:", error)
+      toast.error("Failed to fetch debug info")
     }
   }
 
-  const handleOrderAction = async (orderId: string, status: string, notes?: string) => {
+  const updateOrderStatus = async (orderId: string, newStatus: string) => {
+    setUpdating(orderId)
     try {
-      console.log("Updating order:", orderId, "to status:", status)
+      console.log(`🔄 Updating order ${orderId} to status: ${newStatus}`)
 
       const response = await fetch("/api/director/orders", {
         method: "PATCH",
@@ -171,58 +138,35 @@ const DirectorOrdersPage: React.FC = () => {
         credentials: "include",
         body: JSON.stringify({
           orderId,
-          status,
-          notes,
+          status: newStatus,
+          notes: notes || undefined,
         }),
       })
 
+      console.log("📡 Update Response:", {
+        status: response.status,
+        statusText: response.statusText,
+      })
+
       if (response.ok) {
-        toast.success(`Order ${status.toLowerCase()} successfully`)
-        fetchOrders()
-        setIsViewDialogOpen(false)
+        const updatedOrder = await response.json()
+        console.log("✅ Order updated successfully:", updatedOrder.id)
+
+        setOrders(orders.map((order) => (order.id === orderId ? updatedOrder : order)))
+
+        toast.success(`Order ${newStatus.toLowerCase()} successfully`)
+        setSelectedOrder(null)
+        setNotes("")
       } else {
-        const error = await response.json()
-        console.error("Failed to update order:", error)
-        toast.error(error.error || "Failed to update order")
+        const errorData = await response.json()
+        console.error("❌ Update error:", errorData)
+        toast.error(errorData.error || "Failed to update order")
       }
     } catch (error) {
-      console.error("Error updating order:", error)
+      console.error("💥 Update order error:", error)
       toast.error("Error updating order")
-    }
-  }
-
-  const handleRestock = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!selectedProduct || !restockQuantity) {
-      toast.error("Please select a product and enter quantity")
-      return
-    }
-
-    try {
-      const response = await fetch("/api/products/restock", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          productId: selectedProduct.id,
-          quantity: Number.parseInt(restockQuantity),
-        }),
-      })
-
-      if (response.ok) {
-        toast.success("Product restocked successfully")
-        setIsRestockDialogOpen(false)
-        setSelectedProduct(null)
-        setRestockQuantity("")
-        fetchProducts()
-      } else {
-        const error = await response.json()
-        toast.error(error.error || "Failed to restock product")
-      }
-    } catch (error) {
-      toast.error("Error restocking product")
+    } finally {
+      setUpdating(null)
     }
   }
 
@@ -235,8 +179,9 @@ const DirectorOrdersPage: React.FC = () => {
       case "REJECTED":
         return <XCircle className="h-4 w-4 text-red-500" />
       case "FULFILLED":
+        return <Package className="h-4 w-4 text-blue-500" />
       case "SHIPPED":
-        return <Truck className="h-4 w-4 text-blue-500" />
+        return <Truck className="h-4 w-4 text-purple-500" />
       default:
         return <Package className="h-4 w-4 text-gray-500" />
     }
@@ -251,84 +196,97 @@ const DirectorOrdersPage: React.FC = () => {
       case "REJECTED":
         return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
       case "FULFILLED":
-      case "SHIPPED":
         return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+      case "SHIPPED":
+        return "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200"
       default:
         return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200"
     }
   }
 
-  const lowStockProducts = products.filter((product) => product.quantity < 10)
+  const formatCurrency = (amount: number | undefined | null): string => {
+    const numAmount = Number(amount)
+    if (amount === undefined || amount === null || isNaN(numAmount) || !isFinite(numAmount)) {
+      return "UGX 0.00"
+    }
+    return `UGX ${numAmount.toLocaleString()}`
+  }
+
+  if (status === "loading") {
+    return <div className="flex items-center justify-center h-screen">Loading...</div>
+  }
+
+  if (!session) {
+    return <div className="flex items-center justify-center h-screen">Please sign in</div>
+  }
+
+  const user = {
+    name: session.user.name || "Director",
+    email: session.user.email || "",
+    role: session.user.role || "COMPANY_DIRECTOR",
+    companyName: session.user.companyName || "Your Company",
+  }
 
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar userRole="COMPANY_DIRECTOR" companyName="TechCorp Solutions" />
+      <Sidebar
+        userRole={session.user.role || "COMPANY_DIRECTOR"}
+        companyName={session.user.companyName || "Your Company"}
+      />
       <MobileSidebar
-        userRole="COMPANY_DIRECTOR"
-        companyName="TechCorp Solutions"
+        userRole={session.user.role || "COMPANY_DIRECTOR"}
+        companyName={session.user.companyName || "Your Company"}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={mockUser} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
+        <Header user={user} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="max-w-7xl mx-auto space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold text-foreground">Order Management</h1>
-                <p className="text-muted-foreground">Review and manage order requests</p>
+                <p className="text-muted-foreground">Review and manage order requests from your team</p>
+              </div>
+
+              <div className="flex gap-2">
+                <Button onClick={fetchOrders} variant="outline" size="sm">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
+                </Button>
+                <Button onClick={fetchDebugInfo} variant="outline" size="sm">
+                  <Bug className="h-4 w-4 mr-2" />
+                  Debug Info
+                </Button>
               </div>
             </div>
 
             {/* Debug Info Card */}
-            {debugInfo && (
-              <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
+            {showDebug && debugInfo && (
+              <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
-                    <Bug className="h-5 w-5" />
-                    Debug Information
-                  </CardTitle>
+                  <CardTitle>Debug Information</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4 text-sm">
+                  <div className="space-y-4">
                     <div>
                       <h4 className="font-semibold">Session Info:</h4>
-                      <pre className="bg-white dark:bg-gray-800 p-2 rounded text-xs overflow-auto">
+                      <pre className="text-xs bg-muted p-2 rounded mt-1 overflow-auto">
                         {JSON.stringify(debugInfo.session, null, 2)}
                       </pre>
                     </div>
                     <div>
                       <h4 className="font-semibold">Orders Summary:</h4>
-                      <p>Total orders in database: {debugInfo.orders?.totalOrders || 0}</p>
-                      <p>Companies with orders: {Object.keys(debugInfo.orders?.ordersByCompany || {}).length}</p>
+                      <pre className="text-xs bg-muted p-2 rounded mt-1 overflow-auto">
+                        {JSON.stringify(debugInfo.ordersSummary, null, 2)}
+                      </pre>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Low Stock Alert */}
-            {lowStockProducts.length > 0 && (
-              <Card className="border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-red-700 dark:text-red-300">
-                    <AlertTriangle className="h-5 w-5" />
-                    Low Stock Alert
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-red-600 dark:text-red-400 mb-2">
-                    {lowStockProducts.length} product(s) are running low on stock:
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {lowStockProducts.map((product) => (
-                      <Badge key={product.id} variant="destructive">
-                        {product.name} ({product.quantity} left)
-                      </Badge>
-                    ))}
-                  </div>
+                  <Button onClick={() => setShowDebug(false)} variant="outline" size="sm" className="mt-4">
+                    Hide Debug
+                  </Button>
                 </CardContent>
               </Card>
             )}
@@ -337,34 +295,17 @@ const DirectorOrdersPage: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <ShoppingCart className="h-5 w-5" />
-                  Order Requests
+                  Order Requests ({orders.length})
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {loading ? (
-                  <div className="text-center py-8">
-                    <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
-                    <p className="text-lg font-medium">Loading orders...</p>
-                    <p className="text-sm text-muted-foreground">Fetching order data from the database</p>
-                  </div>
+                  <div className="text-center py-8">Loading orders...</div>
                 ) : orders.length === 0 ? (
-                  <div className="text-center py-12">
-                    <ShoppingCart className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                    <h3 className="text-lg font-medium mb-2">No orders found</h3>
-                    <p className="text-muted-foreground mb-4">There are no order requests for your company yet.</p>
-                    <div className="space-y-2 text-sm text-muted-foreground">
-                      <p>• Orders will appear here once users from your company submit requests</p>
-                      <p>• You can approve, reject, or fulfill orders from this page</p>
-                      <p>• Use the refresh button to check for new orders</p>
-                      <p>• Click "Debug Info" to see detailed debugging information</p>
-                      <p>• Check the browser console for detailed API logs</p>
-                    </div>
-                    <div className="flex gap-2 justify-center mt-4">
-                      <Button variant="outline" onClick={fetchOrders} className="bg-transparent">
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        Refresh Orders
-                      </Button>
-                    </div>
+                  <div className="text-center py-8 text-muted-foreground">
+                    <ShoppingCart className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>No order requests found.</p>
+                    <p className="text-sm">Orders from your team will appear here.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -372,7 +313,7 @@ const DirectorOrdersPage: React.FC = () => {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Order ID</TableHead>
-                          <TableHead>User</TableHead>
+                          <TableHead>Requested By</TableHead>
                           <TableHead>Items</TableHead>
                           <TableHead>Total</TableHead>
                           <TableHead>Status</TableHead>
@@ -399,7 +340,7 @@ const DirectorOrdersPage: React.FC = () => {
                                 ))}
                               </div>
                             </TableCell>
-                            <TableCell>ugx{Number(order.totalAmount).toFixed(2)}</TableCell>
+                            <TableCell>{formatCurrency(order.totalAmount)}</TableCell>
                             <TableCell>
                               <Badge className={getStatusColor(order.status)}>
                                 <div className="flex items-center gap-1">
@@ -410,17 +351,116 @@ const DirectorOrdersPage: React.FC = () => {
                             </TableCell>
                             <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
                             <TableCell>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedOrder(order)
-                                  setOrderNotes("")
-                                  setIsViewDialogOpen(true)
-                                }}
-                              >
-                                Review
-                              </Button>
+                              <div className="flex gap-2">
+                                {order.status === "PENDING" && (
+                                  <>
+                                    <Dialog>
+                                      <DialogTrigger asChild>
+                                        <Button
+                                          size="sm"
+                                          onClick={() => setSelectedOrder(order)}
+                                          disabled={updating === order.id}
+                                        >
+                                          Approve
+                                        </Button>
+                                      </DialogTrigger>
+                                      <DialogContent>
+                                        <DialogHeader>
+                                          <DialogTitle>Approve Order</DialogTitle>
+                                        </DialogHeader>
+                                        <div className="space-y-4">
+                                          <p>Are you sure you want to approve this order?</p>
+                                          <div>
+                                            <Label htmlFor="notes">Notes (Optional)</Label>
+                                            <Textarea
+                                              id="notes"
+                                              value={notes}
+                                              onChange={(e) => setNotes(e.target.value)}
+                                              placeholder="Add any notes..."
+                                            />
+                                          </div>
+                                          <div className="flex gap-2">
+                                            <Button
+                                              onClick={() => updateOrderStatus(order.id, "APPROVED")}
+                                              disabled={updating === order.id}
+                                            >
+                                              {updating === order.id ? "Approving..." : "Approve"}
+                                            </Button>
+                                            <Button variant="outline" onClick={() => setSelectedOrder(null)}>
+                                              Cancel
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      </DialogContent>
+                                    </Dialog>
+
+                                    <Dialog>
+                                      <DialogTrigger asChild>
+                                        <Button
+                                          size="sm"
+                                          variant="destructive"
+                                          onClick={() => setSelectedOrder(order)}
+                                          disabled={updating === order.id}
+                                        >
+                                          Reject
+                                        </Button>
+                                      </DialogTrigger>
+                                      <DialogContent>
+                                        <DialogHeader>
+                                          <DialogTitle>Reject Order</DialogTitle>
+                                        </DialogHeader>
+                                        <div className="space-y-4">
+                                          <p>Are you sure you want to reject this order?</p>
+                                          <div>
+                                            <Label htmlFor="reject-notes">Reason for rejection</Label>
+                                            <Textarea
+                                              id="reject-notes"
+                                              value={notes}
+                                              onChange={(e) => setNotes(e.target.value)}
+                                              placeholder="Please provide a reason for rejection..."
+                                              required
+                                            />
+                                          </div>
+                                          <div className="flex gap-2">
+                                            <Button
+                                              variant="destructive"
+                                              onClick={() => updateOrderStatus(order.id, "REJECTED")}
+                                              disabled={updating === order.id || !notes.trim()}
+                                            >
+                                              {updating === order.id ? "Rejecting..." : "Reject"}
+                                            </Button>
+                                            <Button variant="outline" onClick={() => setSelectedOrder(null)}>
+                                              Cancel
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      </DialogContent>
+                                    </Dialog>
+                                  </>
+                                )}
+
+                                {order.status === "APPROVED" && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => updateOrderStatus(order.id, "FULFILLED")}
+                                    disabled={updating === order.id}
+                                  >
+                                    {updating === order.id ? "Processing..." : "Mark Fulfilled"}
+                                  </Button>
+                                )}
+
+                                {order.status === "FULFILLED" && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => updateOrderStatus(order.id, "SHIPPED")}
+                                    disabled={updating === order.id}
+                                  >
+                                    {updating === order.id ? "Processing..." : "Mark Shipped"}
+                                  </Button>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -430,119 +470,6 @@ const DirectorOrdersPage: React.FC = () => {
                 )}
               </CardContent>
             </Card>
-
-            {/* Order Review Dialog */}
-            <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-              <DialogContent className="max-w-2xl">
-                <DialogHeader>
-                  <DialogTitle>Review Order</DialogTitle>
-                </DialogHeader>
-                {selectedOrder && (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label>Order ID</Label>
-                        <p className="font-mono">{selectedOrder.id}</p>
-                      </div>
-                      <div>
-                        <Label>Status</Label>
-                        <Badge className={getStatusColor(selectedOrder.status)}>
-                          <div className="flex items-center gap-1">
-                            {getStatusIcon(selectedOrder.status)}
-                            {selectedOrder.status}
-                          </div>
-                        </Badge>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label>Requested By</Label>
-                        <div className="mt-1">
-                          <p className="font-medium">{selectedOrder.user.name}</p>
-                          <p className="text-sm text-muted-foreground">{selectedOrder.user.email}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <Label>Total Amount</Label>
-                        <p className="text-2xl font-bold">ugx{Number(selectedOrder.totalAmount).toFixed(2)}</p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label>Order Items</Label>
-                      <div className="mt-2 space-y-2">
-                        {selectedOrder.items.map((item, index) => (
-                          <div key={index} className="flex justify-between items-center p-2 bg-muted rounded">
-                            <div>
-                              <p className="font-medium">{item.product.name}</p>
-                              <p className="text-sm text-muted-foreground">SKU: {item.product.sku}</p>
-                            </div>
-                            <div className="text-right">
-                              <p>Qty: {item.quantity}</p>
-                              <p className="text-sm">ugx{Number(item.totalPrice).toFixed(2)}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {selectedOrder.notes && (
-                      <div>
-                        <Label>Order Notes</Label>
-                        <p className="text-sm bg-muted p-3 rounded">{selectedOrder.notes}</p>
-                      </div>
-                    )}
-
-                    <div>
-                      <Label>Order Date</Label>
-                      <p>{new Date(selectedOrder.createdAt).toLocaleString()}</p>
-                    </div>
-
-                    {selectedOrder.status === "PENDING" && (
-                      <>
-                        <div className="space-y-2">
-                          <Label htmlFor="orderNotes">Notes (Optional)</Label>
-                          <Textarea
-                            id="orderNotes"
-                            value={orderNotes}
-                            onChange={(e) => setOrderNotes(e.target.value)}
-                            placeholder="Add notes for approval/rejection..."
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={() => handleOrderAction(selectedOrder.id, "APPROVED", orderNotes)}
-                            className="flex-1 bg-green-600 hover:bg-green-700"
-                          >
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            Approve Order
-                          </Button>
-                          <Button
-                            onClick={() => handleOrderAction(selectedOrder.id, "REJECTED", orderNotes)}
-                            variant="destructive"
-                            className="flex-1"
-                          >
-                            <XCircle className="h-4 w-4 mr-2" />
-                            Reject Order
-                          </Button>
-                        </div>
-                      </>
-                    )}
-
-                    {selectedOrder.status === "APPROVED" && (
-                      <Button
-                        onClick={() => handleOrderAction(selectedOrder.id, "FULFILLED", orderNotes)}
-                        className="w-full bg-blue-600 hover:bg-blue-700"
-                      >
-                        <Truck className="h-4 w-4 mr-2" />
-                        Mark as Fulfilled
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </DialogContent>
-            </Dialog>
           </div>
         </main>
       </div>

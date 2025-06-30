@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useSession } from "next-auth/react"
 import { Sidebar, MobileSidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,21 +29,18 @@ interface ChartData {
 }
 
 export default function DirectorDashboard() {
+  const { data: session, status } = useSession()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [chartData, setChartData] = useState<ChartData[]>([])
 
-  const mockUser = {
-    name: "Director Smith",
-    email: "director@demo.com",
-    role: "COMPANY_DIRECTOR",
-    companyName: "TechCorp Solutions",
-  }
-
   useEffect(() => {
-    fetchDashboardData()
-  }, [])
+    if (session) {
+      console.log("Director Dashboard - Session user:", session.user)
+      fetchDashboardData()
+    }
+  }, [session])
 
   const fetchDashboardData = async () => {
     try {
@@ -59,6 +57,14 @@ export default function DirectorDashboard() {
     }
   }
 
+  if (status === "loading") {
+    return <div className="flex items-center justify-center h-screen">Loading...</div>
+  }
+
+  if (!session) {
+    return <div className="flex items-center justify-center h-screen">Please sign in</div>
+  }
+
   if (loading) {
     return <div className="flex items-center justify-center h-64">Loading dashboard...</div>
   }
@@ -69,24 +75,36 @@ export default function DirectorDashboard() {
     { name: "Rejected", value: stats?.rejectedOrders || 0, color: "#ef4444" },
   ]
 
+  const user = {
+    name: session.user.name || "Director",
+    email: session.user.email || "",
+    role: session.user.role || "COMPANY_DIRECTOR",
+    companyName: session.user.companyName || "Your Company",
+  }
+
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar userRole="COMPANY_DIRECTOR" companyName="TechCorp Solutions" />
+      <Sidebar
+        userRole={session.user.role || "COMPANY_DIRECTOR"}
+        companyName={session.user.companyName || "Your Company"}
+      />
       <MobileSidebar
-        userRole="COMPANY_DIRECTOR"
-        companyName="TechCorp Solutions"
+        userRole={session.user.role || "COMPANY_DIRECTOR"}
+        companyName={session.user.companyName || "Your Company"}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={mockUser} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
+        <Header user={user} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="max-w-7xl mx-auto space-y-6">
             <div>
               <h1 className="text-3xl font-bold">Director Dashboard</h1>
-              <p className="text-muted-foreground">Overview of your company's operations</p>
+              <p className="text-muted-foreground">
+                Overview of {session.user.companyName || "your company"}'s operations
+              </p>
             </div>
 
             {/* Key Metrics */}
@@ -132,7 +150,7 @@ export default function DirectorDashboard() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Revenue</p>
-                      <p className="text-2xl font-bold">ugx{(stats?.totalRevenue || 0).toLocaleString()}</p>
+                      <p className="text-2xl font-bold">UGX{(stats?.totalRevenue || 0).toLocaleString()}</p>
                     </div>
                     <DollarSign className="w-8 h-8 text-emerald-600" />
                   </div>

@@ -21,8 +21,16 @@ import {
   Bell,
   Settings,
   TrendingUp,
-  AlertTriangle
+  AlertTriangle,
+  LucideIcon
 } from 'lucide-react'
+
+interface NavItem {
+  name: string
+  href: string
+  icon: LucideIcon
+  badge?: string
+}
 
 interface SidebarProps {
   userRole: string
@@ -32,7 +40,7 @@ interface SidebarProps {
   onClose?: () => void
 }
 
-const adminNavItems = [
+const adminNavItems: NavItem[] = [
   { name: 'Dashboard', href: '/admin', icon: Home },
   { name: 'Companies', href: '/admin/companies', icon: Building2 },
   { name: 'Users', href: '/admin/users', icon: Users },
@@ -40,7 +48,7 @@ const adminNavItems = [
   { name: 'Settings', href: '/admin/settings', icon: Settings },
 ]
 
-const directorNavItems = [
+const directorNavItems: NavItem[] = [
   { name: 'Dashboard', href: '/director', icon: Home },
   { name: 'Products', href: '/director/products', icon: Package },
   { name: 'Users', href: '/director/users', icon: Users },
@@ -51,7 +59,7 @@ const directorNavItems = [
   { name: 'Stock Alerts', href: '/director/stock-alerts', icon: AlertTriangle, badge: '3' },
 ]
 
-const userNavItems = [
+const userNavItems: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: Home },
   { name: 'My Orders', href: '/dashboard/orders', icon: ShoppingCart },
   { name: 'My Payments', href: '/dashboard/payments', icon: DollarSign },
@@ -62,9 +70,9 @@ const userNavItems = [
 function SidebarContent({ userRole, companyName, collapsed, setCollapsed, onClose }: SidebarProps & { collapsed?: boolean, setCollapsed?: (collapsed: boolean) => void }) {
   const pathname = usePathname()
 
-  const navItems = userRole === 'ADMIN' ? adminNavItems : 
-                   userRole === 'COMPANY_DIRECTOR' ? directorNavItems : 
-                   userNavItems
+  const navItems: NavItem[] = userRole === 'ADMIN' ? adminNavItems : 
+                              userRole === 'COMPANY_DIRECTOR' ? directorNavItems : 
+                              userNavItems
 
   return (
     <div className={cn(

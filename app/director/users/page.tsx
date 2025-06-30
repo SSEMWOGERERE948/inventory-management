@@ -1,25 +1,21 @@
-'use client'
+"use client"
 
-import { useEffect, useState } from 'react'
-import { Sidebar, MobileSidebar } from '@/components/layout/sidebar'
-import { Header } from '@/components/layout/header'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { toast } from 'sonner'
-import { 
-  Users, 
-  Plus, 
-  Edit,
-  Trash2,
-  UserCheck,
-  UserX
-} from 'lucide-react'
+import type React from "react"
+
+import { useEffect, useState } from "react"
+import { useSession } from "next-auth/react"
+import { Sidebar, MobileSidebar } from "@/components/layout/sidebar"
+import { Header } from "@/components/layout/header"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { toast } from "sonner"
+import { Users, Plus, Edit, Trash2, UserCheck, UserX } from "lucide-react"
 
 interface User {
   id: string
@@ -31,40 +27,45 @@ interface User {
 }
 
 export default function DirectorUsersPage() {
+  const { data: session } = useSession()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    password: '',
-    isActive: true
+    name: "",
+    email: "",
+    password: "",
+    isActive: true,
   })
 
-  const mockUser = {
-    name: 'Director User',
-    email: 'director@demo.com',
-    role: 'COMPANY_DIRECTOR',
-    companyName: 'TechCorp Solutions'
+  console.log("🔍 Users - Session:", session?.user?.email)
+
+  const user = {
+    name: session?.user?.name || "Director User",
+    email: session?.user?.email || "director@demo.com",
+    role: session?.user?.role || "COMPANY_DIRECTOR",
+    companyName: session?.user?.companyName || "Your Company",
   }
 
   useEffect(() => {
-    fetchUsers()
-  }, [])
+    if (session?.user?.role === "COMPANY_DIRECTOR") {
+      fetchUsers()
+    }
+  }, [session])
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch('/api/director/users')
+      const response = await fetch("/api/director/users")
       if (response.ok) {
         const data = await response.json()
         setUsers(data)
       } else {
-        toast.error('Failed to fetch users')
+        toast.error("Failed to fetch users")
       }
     } catch (error) {
-      toast.error('Error fetching users')
+      toast.error("Error fetching users")
     } finally {
       setLoading(false)
     }
@@ -72,97 +73,92 @@ export default function DirectorUsersPage() {
 
   const resetForm = () => {
     setFormData({
-      name: '',
-      email: '',
-      password: '',
-      isActive: true
+      name: "",
+      email: "",
+      password: "",
+      isActive: true,
     })
     setEditingUser(null)
   }
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     try {
-      const response = await fetch('/api/director/users', {
-        method: 'POST',
+      const response = await fetch("/api/director/users", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(formData),
       })
-
       if (response.ok) {
-        toast.success('User created successfully')
+        toast.success("User created successfully")
         setIsCreateDialogOpen(false)
         resetForm()
         fetchUsers()
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to create user')
+        toast.error(error.error || "Failed to create user")
       }
     } catch (error) {
-      toast.error('Error creating user')
+      toast.error("Error creating user")
     }
   }
 
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingUser) return
-    
+
     try {
-      // Create update data with conditional password field
       const updateData: { name: string; email: string; password?: string; isActive: boolean } = {
         name: formData.name,
         email: formData.email,
-        isActive: formData.isActive
+        isActive: formData.isActive,
       }
-      
-      // Only include password if it's not empty
+
       if (formData.password) {
         updateData.password = formData.password
       }
 
       const response = await fetch(`/api/director/users/${editingUser.id}`, {
-        method: 'PUT',
+        method: "PUT",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(updateData),
       })
-
       if (response.ok) {
-        toast.success('User updated successfully')
+        toast.success("User updated successfully")
         setEditingUser(null)
         resetForm()
         fetchUsers()
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to update user')
+        toast.error(error.error || "Failed to update user")
       }
     } catch (error) {
-      toast.error('Error updating user')
+      toast.error("Error updating user")
     }
   }
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user?')) {
+    if (!confirm("Are you sure you want to delete this user?")) {
       return
     }
 
     try {
       const response = await fetch(`/api/director/users/${userId}`, {
-        method: 'DELETE',
+        method: "DELETE",
       })
-
       if (response.ok) {
-        toast.success('User deleted successfully')
+        toast.success("User deleted successfully")
         fetchUsers()
       } else {
-        toast.error('Failed to delete user')
+        toast.error("Failed to delete user")
       }
     } catch (error) {
-      toast.error('Error deleting user')
+      toast.error("Error deleting user")
     }
   }
 
@@ -171,30 +167,32 @@ export default function DirectorUsersPage() {
     setFormData({
       name: user.name,
       email: user.email,
-      password: '',
-      isActive: user.isActive
+      password: "",
+      isActive: user.isActive,
     })
+  }
+
+  if (session?.user?.role !== "COMPANY_DIRECTOR") {
+    return <div className="text-center py-8">Access denied. Director role required.</div>
+  }
+
+  if (loading) {
+    return <div className="flex items-center justify-center h-64">Loading users...</div>
   }
 
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar 
-        userRole="COMPANY_DIRECTOR" 
-        companyName="TechCorp Solutions"
-      />
-      <MobileSidebar 
-        userRole="COMPANY_DIRECTOR" 
-        companyName="TechCorp Solutions"
+      <Sidebar userRole="COMPANY_DIRECTOR" companyName={user.companyName} />
+      <MobileSidebar
+        userRole="COMPANY_DIRECTOR"
+        companyName={user.companyName}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
       />
-      
+
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header 
-          user={mockUser} 
-          onMobileMenuToggle={() => setIsMobileMenuOpen(true)}
-        />
-        
+        <Header user={user} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
+
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="max-w-7xl mx-auto space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -202,7 +200,7 @@ export default function DirectorUsersPage() {
                 <h1 className="text-2xl font-bold text-foreground">Users</h1>
                 <p className="text-muted-foreground">Manage your company's users</p>
               </div>
-              
+
               <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
                 <DialogTrigger asChild>
                   <Button className="gap-2" onClick={resetForm}>
@@ -224,7 +222,7 @@ export default function DirectorUsersPage() {
                         required
                       />
                     </div>
-                    
+
                     <div className="space-y-2">
                       <Label htmlFor="email">Email</Label>
                       <Input
@@ -235,7 +233,7 @@ export default function DirectorUsersPage() {
                         required
                       />
                     </div>
-                    
+
                     <div className="space-y-2">
                       <Label htmlFor="password">Password</Label>
                       <Input
@@ -246,7 +244,7 @@ export default function DirectorUsersPage() {
                         required
                       />
                     </div>
-                    
+
                     <div className="flex items-center space-x-2">
                       <Switch
                         id="isActive"
@@ -255,7 +253,7 @@ export default function DirectorUsersPage() {
                       />
                       <Label htmlFor="isActive">Active User</Label>
                     </div>
-                    
+
                     <Button type="submit" className="w-full">
                       Create User
                     </Button>
@@ -272,9 +270,7 @@ export default function DirectorUsersPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {loading ? (
-                  <div className="text-center py-8">Loading users...</div>
-                ) : users.length === 0 ? (
+                {users.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     No users found. Create your first user to get started.
                   </div>
@@ -306,26 +302,16 @@ export default function DirectorUsersPage() {
                             <TableCell>{user.email}</TableCell>
                             <TableCell>
                               <Badge variant={user.isActive ? "default" : "secondary"}>
-                                {user.isActive ? 'Active' : 'Inactive'}
+                                {user.isActive ? "Active" : "Inactive"}
                               </Badge>
                             </TableCell>
-                            <TableCell>
-                              {new Date(user.createdAt).toLocaleDateString()}
-                            </TableCell>
+                            <TableCell>{new Date(user.createdAt).toLocaleDateString()}</TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleEditUser(user)}
-                                >
+                                <Button variant="ghost" size="sm" onClick={() => handleEditUser(user)}>
                                   <Edit className="h-4 w-4" />
                                 </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleDeleteUser(user.id)}
-                                >
+                                <Button variant="ghost" size="sm" onClick={() => handleDeleteUser(user.id)}>
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
                               </div>
@@ -358,7 +344,7 @@ export default function DirectorUsersPage() {
                 required
               />
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="edit-email">Email</Label>
               <Input
@@ -369,7 +355,7 @@ export default function DirectorUsersPage() {
                 required
               />
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="edit-password">New Password (leave blank to keep current)</Label>
               <Input
@@ -380,7 +366,7 @@ export default function DirectorUsersPage() {
                 placeholder="Enter new password or leave blank"
               />
             </div>
-            
+
             <div className="flex items-center space-x-2">
               <Switch
                 id="edit-isActive"
@@ -389,7 +375,7 @@ export default function DirectorUsersPage() {
               />
               <Label htmlFor="edit-isActive">Active User</Label>
             </div>
-            
+
             <Button type="submit" className="w-full">
               Update User
             </Button>

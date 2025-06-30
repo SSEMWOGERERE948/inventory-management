@@ -65,13 +65,6 @@ export default function PerformancePage() {
   const [selectedPeriod, setSelectedPeriod] = useState("6months")
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
-  const mockUser = {
-    name: "Director Smith",
-    email: "director@demo.com",
-    role: "COMPANY_DIRECTOR",
-    companyName: "TechCorp Solutions",
-  }
-
   useEffect(() => {
     if (session?.user?.role === "COMPANY_DIRECTOR") {
       fetchPerformanceData()
@@ -121,15 +114,18 @@ export default function PerformancePage() {
     URL.revokeObjectURL(url)
   }
 
-  // Safe string conversion for user name
-  const getUserInitial = (name: string | number | null | undefined): string => {
-    if (typeof name === "string" && name.length > 0) {
-      return name.charAt(0).toUpperCase()
+  const formatCurrency = (amount: number): string => {
+    if (typeof amount !== "number" || isNaN(amount) || !isFinite(amount)) {
+      return "UGX 0.00"
     }
-    return "U" // Default fallback
+    return `UGX ${amount.toLocaleString()}`
   }
 
-  if (session?.user?.role !== "COMPANY_DIRECTOR") {
+  if (!session) {
+    return <div className="flex items-center justify-center h-64">Please sign in</div>
+  }
+
+  if (session.user.role !== "COMPANY_DIRECTOR") {
     return <div className="text-center py-8">Access denied. Director role required.</div>
   }
 
@@ -141,21 +137,33 @@ export default function PerformancePage() {
     return <div className="text-center py-8">No performance data available.</div>
   }
 
+  const user = {
+    name: session.user.name || "Director",
+    email: session.user.email || "",
+    role: session.user.role || "COMPANY_DIRECTOR",
+    companyName: session.user.companyName || "Your Company",
+  }
+
   const { userPerformance, monthlyTrends, categoryBreakdown, kpis } = performanceData
 
   const pieColors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"]
 
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar userRole="COMPANY_DIRECTOR" companyName="TechCorp Solutions" />
+      <Sidebar
+        userRole={session.user.role || "COMPANY_DIRECTOR"}
+        companyName={session.user.companyName || "Your Company"}
+      />
       <MobileSidebar
-        userRole="COMPANY_DIRECTOR"
-        companyName="TechCorp Solutions"
+        userRole={session.user.role || "COMPANY_DIRECTOR"}
+        companyName={session.user.companyName || "Your Company"}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
       />
+
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={mockUser} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
+        <Header user={user} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
+
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="max-w-7xl mx-auto space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -163,6 +171,7 @@ export default function PerformancePage() {
                 <h1 className="text-2xl font-bold text-foreground">Performance Analytics</h1>
                 <p className="text-muted-foreground">Comprehensive performance insights and analytics</p>
               </div>
+
               <div className="flex gap-2">
                 <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
                   <SelectTrigger className="w-40">
@@ -174,6 +183,7 @@ export default function PerformancePage() {
                     <SelectItem value="12months">Last 12 Months</SelectItem>
                   </SelectContent>
                 </Select>
+
                 <Button onClick={exportReport} className="gap-2">
                   <Download className="h-4 w-4" />
                   Export Report
@@ -188,7 +198,7 @@ export default function PerformancePage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Total Revenue</p>
-                      <p className="text-2xl font-bold text-green-600">${kpis.totalRevenue.toLocaleString()}</p>
+                      <p className="text-2xl font-bold text-green-600">{formatCurrency(kpis.totalRevenue)}</p>
                     </div>
                     <DollarSign className="w-8 h-8 text-green-600" />
                   </div>
@@ -201,7 +211,7 @@ export default function PerformancePage() {
                     <div>
                       <p className="text-sm text-muted-foreground">Net Profit</p>
                       <p className={`text-2xl font-bold ${kpis.netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        ${kpis.netProfit.toLocaleString()}
+                        {formatCurrency(kpis.netProfit)}
                       </p>
                     </div>
                     {kpis.netProfit >= 0 ? (
@@ -230,7 +240,7 @@ export default function PerformancePage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Avg Order Value</p>
-                      <p className="text-2xl font-bold">${kpis.avgOrderValue.toFixed(2)}</p>
+                      <p className="text-2xl font-bold">{formatCurrency(kpis.avgOrderValue)}</p>
                     </div>
                     <Target className="w-8 h-8 text-purple-600" />
                   </div>
@@ -254,7 +264,7 @@ export default function PerformancePage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Total Expenses</p>
-                      <p className="text-2xl font-bold text-red-600">${kpis.totalExpenses.toLocaleString()}</p>
+                      <p className="text-2xl font-bold text-red-600">{formatCurrency(kpis.totalExpenses)}</p>
                     </div>
                     <Package className="w-8 h-8 text-red-600" />
                   </div>
@@ -278,7 +288,7 @@ export default function PerformancePage() {
                       <Tooltip
                         formatter={(value, name) => [
                           name === "payments" || name === "expenses"
-                            ? `$${Number(value).toLocaleString()}`
+                            ? formatCurrency(Number(value))
                             : Number(value).toLocaleString(),
                           typeof name === "string" ? name.charAt(0).toUpperCase() + name.slice(1) : String(name),
                         ]}
@@ -335,7 +345,7 @@ export default function PerformancePage() {
                             <Cell key={`cell-${index}`} fill={pieColors[index % pieColors.length]} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(value) => [`$${Number(value).toLocaleString()}`, "Amount"]} />
+                        <Tooltip formatter={(value) => [formatCurrency(Number(value)), "Amount"]} />
                       </PieChart>
                     </ResponsiveContainer>
                   ) : (
@@ -382,12 +392,12 @@ export default function PerformancePage() {
                               </TableCell>
                               <TableCell>{user.totalOrders}</TableCell>
                               <TableCell className="font-semibold text-green-600">
-                                ${user.totalPayments.toFixed(2)}
+                                {formatCurrency(user.totalPayments)}
                               </TableCell>
                               <TableCell className="font-semibold text-red-600">
-                                ${user.totalExpenses.toFixed(2)}
+                                {formatCurrency(user.totalExpenses)}
                               </TableCell>
-                              <TableCell>${user.avgOrderValue.toFixed(2)}</TableCell>
+                              <TableCell>{formatCurrency(user.avgOrderValue)}</TableCell>
                               <TableCell>
                                 <Badge
                                   variant={performanceLevel === "high" ? "default" : "secondary"}

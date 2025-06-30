@@ -2,6 +2,7 @@
 
 import type React from "react"
 import { useEffect, useState } from "react"
+import { useSession } from "next-auth/react"
 import { Sidebar, MobileSidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -44,6 +45,7 @@ interface Product {
 }
 
 export default function StockAlertsPage() {
+  const { data: session } = useSession()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [alerts, setAlerts] = useState<StockAlert[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -59,17 +61,12 @@ export default function StockAlertsPage() {
   const [filterSeverity, setFilterSeverity] = useState("ALL")
   const [filterType, setFilterType] = useState("ALL")
 
-  const mockUser = {
-    name: "Director Smith",
-    email: "director@demo.com",
-    role: "COMPANY_DIRECTOR",
-    companyName: "TechCorp Solutions",
-  }
-
   useEffect(() => {
-    fetchStockAlerts()
-    fetchProducts()
-  }, [])
+    if (session?.user?.role === "COMPANY_DIRECTOR") {
+      fetchStockAlerts()
+      fetchProducts()
+    }
+  }, [session])
 
   const fetchStockAlerts = async () => {
     try {
@@ -243,18 +240,36 @@ export default function StockAlertsPage() {
   const highAlerts = alerts.filter((alert) => alert.severity === "HIGH" && !alert.isResolved)
   const totalActiveAlerts = alerts.filter((alert) => !alert.isResolved)
 
+  if (!session) {
+    return <div className="flex items-center justify-center h-64">Please sign in</div>
+  }
+
+  if (session.user.role !== "COMPANY_DIRECTOR") {
+    return <div className="text-center py-8">Access denied. Director role required.</div>
+  }
+
+  const user = {
+    name: session.user.name || "Director",
+    email: session.user.email || "",
+    role: session.user.role || "COMPANY_DIRECTOR",
+    companyName: session.user.companyName || "Your Company",
+  }
+
   return (
     <div className="flex h-screen bg-background">
-      <Sidebar userRole="COMPANY_DIRECTOR" companyName="TechCorp Solutions" />
+      <Sidebar
+        userRole={session.user.role || "COMPANY_DIRECTOR"}
+        companyName={session.user.companyName || "Your Company"}
+      />
       <MobileSidebar
-        userRole="COMPANY_DIRECTOR"
-        companyName="TechCorp Solutions"
+        userRole={session.user.role || "COMPANY_DIRECTOR"}
+        companyName={session.user.companyName || "Your Company"}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header user={mockUser} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
+        <Header user={user} onMobileMenuToggle={() => setIsMobileMenuOpen(true)} />
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <div className="max-w-7xl mx-auto space-y-6">
@@ -263,6 +278,7 @@ export default function StockAlertsPage() {
                 <h1 className="text-2xl font-bold text-foreground">Stock Alerts</h1>
                 <p className="text-muted-foreground">Real-time inventory monitoring and alerts</p>
               </div>
+
               <div className="flex gap-2">
                 <Button variant="outline" onClick={fetchStockAlerts} className="gap-2 bg-transparent">
                   <RefreshCw className="h-4 w-4" />
@@ -306,6 +322,7 @@ export default function StockAlertsPage() {
                           </SelectContent>
                         </Select>
                       </div>
+
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="minThreshold">Minimum Threshold</Label>
@@ -332,6 +349,7 @@ export default function StockAlertsPage() {
                           />
                         </div>
                       </div>
+
                       <Button type="submit" className="w-full">
                         Update Thresholds
                       </Button>
@@ -372,6 +390,7 @@ export default function StockAlertsPage() {
                           </SelectContent>
                         </Select>
                       </div>
+
                       <div className="space-y-2">
                         <Label htmlFor="restockQuantity">Quantity to Add</Label>
                         <Input
@@ -384,6 +403,7 @@ export default function StockAlertsPage() {
                           required
                         />
                       </div>
+
                       <div className="flex gap-2">
                         <Button type="submit" className="flex-1">
                           Restock Product
@@ -412,6 +432,7 @@ export default function StockAlertsPage() {
                   </div>
                 </CardContent>
               </Card>
+
               <Card className="border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
@@ -424,6 +445,7 @@ export default function StockAlertsPage() {
                   </div>
                 </CardContent>
               </Card>
+
               <Card>
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
@@ -436,6 +458,7 @@ export default function StockAlertsPage() {
                   </div>
                 </CardContent>
               </Card>
+
               <Card>
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
@@ -469,6 +492,7 @@ export default function StockAlertsPage() {
                       <SelectItem value="LOW">Low</SelectItem>
                     </SelectContent>
                   </Select>
+
                   <Select value={filterType} onValueChange={setFilterType}>
                     <SelectTrigger className="w-48">
                       <SelectValue placeholder="Filter by type" />
