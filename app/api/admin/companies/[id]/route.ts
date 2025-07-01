@@ -18,12 +18,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     const company = await prisma.company.update({
       where: { id: params.id },
-      data: {
-        name,
-        email,
-        phone,
-        address,
-      },
+      data: { name, email, phone, address },
       include: {
         users: {
           select: {

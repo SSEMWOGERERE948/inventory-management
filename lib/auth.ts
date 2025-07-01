@@ -13,11 +13,15 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
+        console.log("🔐 Auth attempt for:", credentials?.email)
+
         if (!credentials?.email || !credentials?.password) {
+          console.log("❌ Missing credentials")
           return null
         }
 
         try {
+          console.log("🔍 Looking up user in database...")
           const user = await prisma.user.findUnique({
             where: {
               email: credentials.email,
@@ -27,16 +31,29 @@ export const authOptions: NextAuthOptions = {
             },
           })
 
-          if (!user || !user.password) {
+          console.log("👤 User found:", user ? "YES" : "NO")
+          if (user) {
+            console.log("📧 User email:", user.email)
+            console.log("🏢 User role:", user.role)
+            console.log("✅ User active:", user.isActive)
+            console.log("🔑 Has password:", !!user.password)
+          }
+
+          if (!user || !user.password || !user.isActive) {
+            console.log("❌ User validation failed")
             return null
           }
 
+          console.log("🔐 Checking password...")
           const isPasswordValid = await bcrypt.compare(credentials.password, user.password)
+          console.log("🔑 Password valid:", isPasswordValid)
 
           if (!isPasswordValid) {
+            console.log("❌ Invalid password")
             return null
           }
 
+          console.log("✅ Authentication successful!")
           return {
             id: user.id,
             email: user.email,
@@ -46,7 +63,7 @@ export const authOptions: NextAuthOptions = {
             companyName: user.company?.name || "Unknown Company",
           }
         } catch (error) {
-          console.error("Auth error:", error)
+          console.error("💥 Auth error:", error)
           return null
         }
       },
@@ -55,6 +72,7 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     jwt: async ({ token, user }: { token: any; user: any }) => {
       if (user) {
+        console.log("🎫 Creating JWT for user:", user.email)
         token.id = user.id
         token.role = user.role
         token.companyId = user.companyId
@@ -64,6 +82,7 @@ export const authOptions: NextAuthOptions = {
     },
     session: async ({ session, token }: { session: any; token: any }) => {
       if (token) {
+        console.log("📋 Creating session for user:", token.id)
         session.user.id = token.id as string
         session.user.role = token.role as string
         session.user.companyId = token.companyId as string
@@ -72,6 +91,7 @@ export const authOptions: NextAuthOptions = {
       return session
     },
     redirect: async ({ url, baseUrl }: { url: string; baseUrl: string }) => {
+      console.log("🔄 Redirect - URL:", url, "Base:", baseUrl)
       if (url.startsWith("/")) return `${baseUrl}${url}`
       else if (new URL(url).origin === baseUrl) return url
       return baseUrl + "/dashboard"
@@ -85,7 +105,7 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
-  debug: process.env.NODE_ENV === "development",
+  debug: true, // Enable debug mode
   secret: process.env.NEXTAUTH_SECRET,
 }
 
