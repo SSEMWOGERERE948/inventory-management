@@ -1,20 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth/next'
-import { authOptions } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
+import { type NextRequest, NextResponse } from "next/server"
+import { getServerSession } from "next-auth/next"
+import { authOptions } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
 
-// Add this line to force dynamic rendering
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(authOptions)
-    
-    if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    if (!session || session.user.role !== "ADMIN") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const body = await request.json()
@@ -22,7 +18,12 @@ export async function PUT(
 
     const company = await prisma.company.update({
       where: { id: params.id },
-      data: { name, email, phone, address },
+      data: {
+        name,
+        email,
+        phone,
+        address,
+      },
       include: {
         users: {
           select: {
@@ -31,42 +32,39 @@ export async function PUT(
             email: true,
             role: true,
             isActive: true,
-          }
+          },
         },
         _count: {
           select: {
             products: true,
             orderRequests: true,
-          }
-        }
-      }
+          },
+        },
+      },
     })
 
     return NextResponse.json(company)
   } catch (error) {
-    console.error('Error updating company:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error("Error updating company:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(authOptions)
-    
-    if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    if (!session || session.user.role !== "ADMIN") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     await prisma.company.delete({
-      where: { id: params.id }
+      where: { id: params.id },
     })
 
-    return NextResponse.json({ message: 'Company deleted successfully' })
+    return NextResponse.json({ message: "Company deleted successfully" })
   } catch (error) {
-    console.error('Error deleting company:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error("Error deleting company:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

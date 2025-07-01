@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlserver"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Account {
@@ -13,15 +14,14 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.NVarChar(Max)
-  access_token      String? @db.NVarChar(Max)
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.NVarChar(Max)
+  id_token          String?
   session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
@@ -31,30 +31,28 @@ model Session {
   sessionToken String   @unique
   userId       String
   expires      DateTime
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model User {
-  id            String    @id @default(cuid())
+  id            String         @id @default(cuid())
   name          String?
-  email         String    @unique
+  email         String         @unique
   password      String?
   emailVerified DateTime?
   image         String?
-  role          String    @default("USER")
-  isActive      Boolean   @default(true)
+  role          String         @default("USER")
+  isActive      Boolean        @default(true)
   companyId     String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   accounts      Account[]
-  sessions      Session[]
-  company       Company?        @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  orderRequests OrderRequest[]
-  products      Product[]
-  payments      Payment[]
   expenses      Expense[]
+  orderRequests OrderRequest[]
+  payments      Payment[]
+  products      Product[]
+  sessions      Session[]
+  company       Company?       @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model VerificationToken {
@@ -66,20 +64,19 @@ model VerificationToken {
 }
 
 model Company {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  email     String   @unique
-  phone     String?
-  address   String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  users         User[]
-  products      Product[]
+  id            String         @id @default(cuid())
+  name          String         @unique
+  email         String         @unique
+  phone         String?
+  address       String?
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  expenses      Expense[]
   orderRequests OrderRequest[]
   payments      Payment[]
-  expenses      Expense[]
+  products      Product[]
+  users         User[]
 }
 
 model Category {
@@ -89,61 +86,57 @@ model Category {
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-
-  products Product[]
+  products    Product[]
 }
 
 model Product {
-  id          String   @id @default(cuid())
+  id          String             @id @default(cuid())
   name        String
   description String?
-  sku         String   @unique
-  price       Decimal  @db.Decimal(10, 2)
-  quantity    Int      @default(0)
-  minStock    Int      @default(0)
+  sku         String             @unique
+  price       Decimal            @db.Decimal(10, 2)
+  quantity    Int                @default(0)
+  minStock    Int                @default(0)
   maxStock    Int?
-  isActive    Boolean  @default(true)
+  isActive    Boolean            @default(true)
   companyId   String
   categoryId  String?
   createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  company       Company            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  category      Category?          @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdBy     User               @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  orderItems    OrderRequestItem[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  orderItems  OrderRequestItem[]
+  category    Category?          @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  company     Company            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy   User               @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model OrderRequest {
-  id          String            @id @default(cuid())
-  status      String            @default("PENDING")
-  totalAmount Decimal           @db.Decimal(10, 2)
+  id          String             @id @default(cuid())
+  status      String             @default("PENDING")
+  totalAmount Decimal            @db.Decimal(10, 2)
   notes       String?
   companyId   String
   userId      String
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
   approvedAt  DateTime?
   rejectedAt  DateTime?
   fulfilledAt DateTime?
   shippedAt   DateTime?
-
-  company   Company            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  user      User               @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  items     OrderRequestItem[]
+  company     Company            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user        User               @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  items       OrderRequestItem[]
 }
 
 model OrderRequestItem {
-  id             String  @id @default(cuid())
+  id             String       @id @default(cuid())
   quantity       Int
-  unitPrice      Decimal @db.Decimal(10, 2)
-  totalPrice     Decimal @db.Decimal(10, 2)
+  unitPrice      Decimal      @db.Decimal(10, 2)
+  totalPrice     Decimal      @db.Decimal(10, 2)
   orderRequestId String
   productId      String
-
-  orderRequest OrderRequest @relation(fields: [orderRequestId], references: [id], onDelete: Cascade)
-  product      Product      @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  orderRequest   OrderRequest @relation(fields: [orderRequestId], references: [id], onDelete: Cascade)
+  product        Product      @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([orderRequestId, productId])
 }
@@ -158,9 +151,8 @@ model Payment {
   companyId   String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
-  user    User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  company Company @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user        User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model Expense {
@@ -174,7 +166,6 @@ model Expense {
   companyId   String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
-  user    User    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  company Company @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user        User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
