@@ -9,24 +9,24 @@ export async function GET() {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session) {
+    if (!session || !session.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Get all approved orders for the user
-    const orders = await prisma.orderRequest.findMany({
+    // Get user's approved orders total
+    const approvedOrders = await prisma.orderRequest.findMany({
       where: {
         userId: session.user.id,
-        status: "APPROVED", // Only count approved orders as debt
+        status: {
+          in: ["APPROVED", "FULFILLED", "SHIPPED"],
+        },
       },
       select: {
-        id: true,
         totalAmount: true,
-        createdAt: true,
       },
     })
 
-    // Get all payments made by the user
+    // Get user's payments total
     const payments = await prisma.payment.findMany({
       where: {
         userId: session.user.id,
@@ -36,17 +36,39 @@ export async function GET() {
       },
     })
 
+    // Get user's credit information
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: {
+        creditLimit: true,
+        creditUsed: true,
+      },
+    })
+
     // Calculate totals
-    const totalOrderAmount = orders.reduce((sum, order) => sum + Number(order.totalAmount), 0)
-    const totalPayments = payments.reduce((sum, payment) => sum + Number(payment.amount), 0)
-    const outstandingBalance = totalOrderAmount - totalPayments
+    const totalOrderAmount = approvedOrders.reduce((sum, order) => {
+      return sum + Number(order.totalAmount)
+    }, 0)
+
+    const totalPayments = payments.reduce((sum, payment) => {
+      return sum + Number(payment.amount)
+    }, 0)
+
+    const outstandingBalance = Math.max(0, totalOrderAmount - totalPayments)
+
+    const creditLimit = Number(user?.creditLimit || 0)
+    const creditUsed = Number(user?.creditUsed || 0)
+    const availableCredit = Math.max(0, creditLimit - creditUsed)
 
     return NextResponse.json({
       totalOrderAmount,
       totalPayments,
-      outstandingBalance: Math.max(0, outstandingBalance), // Don't show negative balances
-      orders: orders.length,
+      outstandingBalance,
+      orders: approvedOrders.length,
       payments: payments.length,
+      creditLimit,
+      creditUsed,
+      availableCredit,
     })
   } catch (error) {
     console.error("Error fetching user balance:", error)

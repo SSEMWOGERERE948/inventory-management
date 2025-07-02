@@ -11,7 +11,17 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { CreditCard, Eye, Filter, Download, TrendingUp, AlertTriangle, Users } from "lucide-react"
+import {
+  CreditCard,
+  Eye,
+  Filter,
+  Download,
+  TrendingUp,
+  AlertTriangle,
+  Users,
+  UserCheck,
+  ChevronRight,
+} from "lucide-react"
 import { toast } from "sonner"
 import { format } from "date-fns"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
@@ -28,6 +38,8 @@ interface Payment {
     name: string
     email: string
   }
+  isFromCredit: boolean
+  creditAmount: number
 }
 
 interface UserBalance {
@@ -50,6 +62,37 @@ interface CompanyBalances {
   }
 }
 
+interface CustomerDebt {
+  id: string
+  name: string
+  phone?: string
+  email?: string
+  address?: string
+  totalCredit: number
+  totalPaid: number
+  outstandingBalance: number
+  createdAt: string
+  _count: {
+    orders: number
+    payments: number
+  }
+}
+
+interface CustomerDebtsResponse {
+  user: {
+    id: string
+    name: string
+    email: string
+  }
+  customers: CustomerDebt[]
+  totals: {
+    totalCustomers: number
+    totalOutstanding: number
+    totalCredit: number
+    totalPaid: number
+  }
+}
+
 export default function DirectorPaymentsPage() {
   const { data: session } = useSession()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
@@ -58,6 +101,9 @@ export default function DirectorPaymentsPage() {
   const [loading, setLoading] = useState(true)
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
+  const [isCustomerDebtsDialogOpen, setIsCustomerDebtsDialogOpen] = useState(false)
+  const [customerDebts, setCustomerDebts] = useState<CustomerDebtsResponse | null>(null)
+  const [loadingCustomerDebts, setLoadingCustomerDebts] = useState(false)
 
   // Filters
   const [userFilter, setUserFilter] = useState("")
@@ -94,6 +140,25 @@ export default function DirectorPaymentsPage() {
       }
     } catch (error) {
       console.error("Error fetching company balances:", error)
+    }
+  }
+
+  const fetchCustomerDebts = async (userId: string) => {
+    setLoadingCustomerDebts(true)
+    try {
+      const response = await fetch(`/api/director/users/${userId}/customer-debts`)
+      if (response.ok) {
+        const data = await response.json()
+        setCustomerDebts(data)
+        setIsCustomerDebtsDialogOpen(true)
+      } else {
+        toast.error("Failed to fetch customer debts")
+      }
+    } catch (error) {
+      console.error("Error fetching customer debts:", error)
+      toast.error("Error fetching customer debts")
+    } finally {
+      setLoadingCustomerDebts(false)
     }
   }
 
@@ -298,6 +363,7 @@ export default function DirectorPaymentsPage() {
                           <TableHead>Total Payments</TableHead>
                           <TableHead>Outstanding</TableHead>
                           <TableHead>Status</TableHead>
+                          <TableHead>Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -318,6 +384,19 @@ export default function DirectorPaymentsPage() {
                             </TableCell>
                             <TableCell>
                               <Badge variant="destructive">Payment Required</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => fetchCustomerDebts(userBalance.userId)}
+                                disabled={loadingCustomerDebts}
+                                className="gap-2"
+                              >
+                                <UserCheck className="h-4 w-4" />
+                                View Customer Debts
+                                <ChevronRight className="h-4 w-4" />
+                              </Button>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -401,6 +480,7 @@ export default function DirectorPaymentsPage() {
                           <TableHead>Description</TableHead>
                           <TableHead>Amount</TableHead>
                           <TableHead>Receipt</TableHead>
+                          <TableHead>Payment Type</TableHead>
                           <TableHead>Actions</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -426,6 +506,20 @@ export default function DirectorPaymentsPage() {
                                 </Button>
                               ) : (
                                 <span className="text-muted-foreground">No receipt</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {payment.isFromCredit ? (
+                                <div>
+                                  <Badge variant="secondary">Credit Payment</Badge>
+                                  {payment.creditAmount > 0 && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Credit: {formatCurrency(Number(payment.creditAmount))}
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <Badge variant="outline">Regular</Badge>
                               )}
                             </TableCell>
                             <TableCell>
@@ -482,6 +576,20 @@ export default function DirectorPaymentsPage() {
                       <p>{format(new Date(selectedPayment.paymentDate), "PPP")}</p>
                     </div>
 
+                    {selectedPayment?.isFromCredit && (
+                      <div>
+                        <Label>Payment Type</Label>
+                        <div className="mt-1">
+                          <Badge variant="secondary">Credit Payment</Badge>
+                          {selectedPayment.creditAmount > 0 && (
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Credit Amount: {formatCurrency(Number(selectedPayment.creditAmount))}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {selectedPayment.receiptUrl && (
                       <div>
                         <Label>Receipt</Label>
@@ -502,6 +610,137 @@ export default function DirectorPaymentsPage() {
                       </p>
                     </div>
                   </div>
+                )}
+              </DialogContent>
+            </Dialog>
+
+            {/* Customer Debts Dialog */}
+            <Dialog open={isCustomerDebtsDialogOpen} onOpenChange={setIsCustomerDebtsDialogOpen}>
+              <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <UserCheck className="h-5 w-5" />
+                    Customer Debts - {customerDebts?.user.name}
+                  </DialogTitle>
+                </DialogHeader>
+                {loadingCustomerDebts ? (
+                  <div className="text-center py-8">Loading customer debts...</div>
+                ) : customerDebts ? (
+                  <div className="space-y-6">
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="text-center">
+                            <p className="text-sm text-muted-foreground">Total Customers</p>
+                            <p className="text-2xl font-bold">{customerDebts.totals.totalCustomers}</p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="text-center">
+                            <p className="text-sm text-muted-foreground">Total Credit Given</p>
+                            <p className="text-2xl font-bold">{formatCurrency(customerDebts.totals.totalCredit)}</p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="text-center">
+                            <p className="text-sm text-muted-foreground">Total Paid</p>
+                            <p className="text-2xl font-bold text-green-600">
+                              {formatCurrency(customerDebts.totals.totalPaid)}
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950">
+                        <CardContent className="p-4">
+                          <div className="text-center">
+                            <p className="text-sm text-red-700 dark:text-red-300">Outstanding</p>
+                            <p className="text-2xl font-bold text-red-600">
+                              {formatCurrency(customerDebts.totals.totalOutstanding)}
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Customer Debts Table */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Customers with Outstanding Balances ({customerDebts.customers.length})</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {customerDebts.customers.length === 0 ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <UserCheck className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                            <p>No customers with outstanding balances found.</p>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Customer</TableHead>
+                                  <TableHead>Contact</TableHead>
+                                  <TableHead>Total Credit</TableHead>
+                                  <TableHead>Total Paid</TableHead>
+                                  <TableHead>Outstanding</TableHead>
+                                  <TableHead>Orders/Payments</TableHead>
+                                  <TableHead>Status</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {customerDebts.customers.map((customer) => (
+                                  <TableRow key={customer.id}>
+                                    <TableCell>
+                                      <div>
+                                        <p className="font-medium">{customer.name}</p>
+                                        <p className="text-sm text-muted-foreground">
+                                          Added {format(new Date(customer.createdAt), "MMM dd, yyyy")}
+                                        </p>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="text-sm">
+                                        {customer.phone && <p>{customer.phone}</p>}
+                                        {customer.email && <p className="text-muted-foreground">{customer.email}</p>}
+                                        {customer.address && (
+                                          <p className="text-muted-foreground text-xs">{customer.address}</p>
+                                        )}
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="font-semibold">
+                                      {formatCurrency(customer.totalCredit)}
+                                    </TableCell>
+                                    <TableCell className="text-green-600">
+                                      {formatCurrency(customer.totalPaid)}
+                                    </TableCell>
+                                    <TableCell className="font-semibold text-red-600">
+                                      {formatCurrency(customer.outstandingBalance)}
+                                    </TableCell>
+                                    <TableCell>
+                                      <div className="text-sm">
+                                        <p>{customer._count.orders} orders</p>
+                                        <p className="text-muted-foreground">{customer._count.payments} payments</p>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge variant="destructive">Owes Money</Badge>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">No data available</div>
                 )}
               </DialogContent>
             </Dialog>

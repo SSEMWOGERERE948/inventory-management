@@ -64,7 +64,7 @@ const userNavItems: NavItem[] = [
   { name: 'My Orders', href: '/dashboard/orders', icon: ShoppingCart },
   { name: 'My Payments', href: '/dashboard/payments', icon: DollarSign },
   { name: 'My Expenses', href: '/dashboard/expenses', icon: FileText },
-  { name: 'Notifications', href: '/dashboard/notifications', icon: Bell, badge: '2' },
+  { name: "Customers", href: "/dashboard/customers", icon: Users },
 ]
 
 function SidebarContent({ userRole, companyName, collapsed, setCollapsed, onClose }: SidebarProps & { collapsed?: boolean, setCollapsed?: (collapsed: boolean) => void }) {

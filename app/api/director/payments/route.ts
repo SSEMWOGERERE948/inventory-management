@@ -31,7 +31,14 @@ export async function GET() {
       },
     })
 
-    return NextResponse.json(payments)
+    // Convert Decimal to number for JSON serialization
+    const paymentsWithNumbers = payments.map((payment) => ({
+      ...payment,
+      amount: Number(payment.amount),
+      creditAmount: Number(payment.creditAmount),
+    }))
+
+    return NextResponse.json(paymentsWithNumbers)
   } catch (error) {
     console.error("Error fetching payments:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

@@ -35,24 +35,30 @@ model Session {
 }
 
 model User {
-  id            String         @id @default(cuid())
-  name          String?
-  email         String         @unique
-  password      String?
-  emailVerified DateTime?
-  image         String?
-  role          String         @default("USER")
-  isActive      Boolean        @default(true)
-  companyId     String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  accounts      Account[]
-  expenses      Expense[]
-  orderRequests OrderRequest[]
-  payments      Payment[]
-  products      Product[]
-  sessions      Session[]
-  company       Company?       @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                 String              @id @default(cuid())
+  name               String?
+  email              String              @unique
+  password           String?
+  emailVerified      DateTime?
+  image              String?
+  role               String              @default("USER")
+  isActive           Boolean             @default(true)
+  companyId          String?
+  creditLimit        Decimal             @default(0) @db.Decimal(10, 2)
+  creditUsed         Decimal             @default(0) @db.Decimal(10, 2)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  accounts           Account[]
+  expenses           Expense[]
+  orderRequests      OrderRequest[]
+  payments           Payment[]
+  products           Product[]
+  sessions           Session[]
+  creditTransactions CreditTransaction[]
+  customers          Customer[]
+  customerPayments   CustomerPayment[]
+  company            Company?            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model VerificationToken {
@@ -64,19 +70,23 @@ model VerificationToken {
 }
 
 model Company {
-  id            String         @id @default(cuid())
-  name          String         @unique
-  email         String         @unique
-  phone         String?
-  address       String?
-  isActive      Boolean        @default(true)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  expenses      Expense[]
-  orderRequests OrderRequest[]
-  payments      Payment[]
-  products      Product[]
-  users         User[]
+  id                 String              @id @default(cuid())
+  name               String              @unique
+  email              String              @unique
+  phone              String?
+  address            String?
+  isActive           Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  expenses           Expense[]
+  orderRequests      OrderRequest[]
+  payments           Payment[]
+  products           Product[]
+  users              User[]
+  creditTransactions CreditTransaction[]
+  stockAlerts        StockAlert[]
+  customers          Customer[]
 }
 
 model Category {
@@ -86,6 +96,7 @@ model Category {
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
   products    Product[]
 }
 
@@ -96,7 +107,7 @@ model Product {
   sku         String             @unique
   price       Decimal            @db.Decimal(10, 2)
   quantity    Int                @default(0)
-  minStock    Int                @default(0)
+  minStock    Int                @default(10)
   maxStock    Int?
   isActive    Boolean            @default(true)
   companyId   String
@@ -104,10 +115,13 @@ model Product {
   createdById String
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
-  orderItems  OrderRequestItem[]
-  category    Category?          @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  company     Company            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdBy   User               @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  orderItems     OrderRequestItem[]
+  stockAlerts    StockAlert[]
+  customerOrders CustomerOrder[]
+  category       Category?          @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  company        Company            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy      User               @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model OrderRequest {
@@ -123,6 +137,7 @@ model OrderRequest {
   rejectedAt  DateTime?
   fulfilledAt DateTime?
   shippedAt   DateTime?
+
   company     Company            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user        User               @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   items       OrderRequestItem[]
@@ -135,6 +150,7 @@ model OrderRequestItem {
   totalPrice     Decimal      @db.Decimal(10, 2)
   orderRequestId String
   productId      String
+
   orderRequest   OrderRequest @relation(fields: [orderRequestId], references: [id], onDelete: Cascade)
   product        Product      @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -142,17 +158,20 @@ model OrderRequestItem {
 }
 
 model Payment {
-  id          String   @id @default(cuid())
-  amount      Decimal  @db.Decimal(10, 2)
-  description String
-  receiptUrl  String?
-  paymentDate DateTime
-  userId      String
-  companyId   String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  user        User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id            String   @id @default(cuid())
+  amount        Decimal  @db.Decimal(10, 2)
+  description   String
+  receiptUrl    String?
+  paymentDate   DateTime
+  userId        String
+  companyId     String
+  isFromCredit  Boolean  @default(false)
+  creditAmount  Decimal  @default(0) @db.Decimal(10, 2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user          User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model Expense {
@@ -166,6 +185,87 @@ model Expense {
   companyId   String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
   company     Company  @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   user        User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model CreditTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  companyId   String
+  type        String   // GRANTED, USED, PAYMENT
+  amount      Decimal  @db.Decimal(10, 2)
+  description String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model StockAlert {
+  id          String   @id @default(cuid())
+  productId   String
+  companyId   String
+  alertType   String   // CRITICAL, HIGH, MEDIUM
+  message     String
+  isResolved  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model Customer {
+  id             String            @id @default(cuid())
+  name           String
+  phone          String?
+  email          String?
+  address        String?
+  totalCredit    Decimal           @default(0) @db.Decimal(10, 2)
+  totalPaid      Decimal           @default(0) @db.Decimal(10, 2)
+  outstandingBalance Decimal       @default(0) @db.Decimal(10, 2)
+  userId         String
+  companyId      String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orders         CustomerOrder[]
+  payments       CustomerPayment[]
+}
+
+model CustomerOrder {
+  id             String   @id @default(cuid())
+  customerId     String
+  productId      String
+  quantity       Int
+  unitPrice      Decimal  @db.Decimal(10, 2)
+  totalAmount    Decimal  @db.Decimal(10, 2)
+  isPaid         Boolean  @default(false)
+  paidAmount     Decimal  @default(0) @db.Decimal(10, 2)
+  remainingAmount Decimal @default(0) @db.Decimal(10, 2)
+  orderDate      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  customer       Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model CustomerPayment {
+  id          String   @id @default(cuid())
+  customerId  String
+  amount      Decimal  @db.Decimal(10, 2)
+  description String?
+  paymentDate DateTime
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

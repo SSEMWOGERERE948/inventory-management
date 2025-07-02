@@ -17,7 +17,7 @@ export async function GET() {
     const users = await prisma.user.findMany({
       where: {
         companyId: session.user.companyId,
-        role: "USER", // Only regular users, not directors
+        role: "USER",
       },
       select: {
         id: true,
@@ -26,21 +26,22 @@ export async function GET() {
       },
     })
 
-    // Calculate balance for each user
     const userBalances = await Promise.all(
       users.map(async (user) => {
-        // Get approved orders
+        // Get user's approved orders
         const orders = await prisma.orderRequest.findMany({
           where: {
             userId: user.id,
-            status: "APPROVED",
+            status: {
+              in: ["APPROVED", "FULFILLED", "SHIPPED"],
+            },
           },
           select: {
             totalAmount: true,
           },
         })
 
-        // Get payments
+        // Get user's payments
         const payments = await prisma.payment.findMany({
           where: {
             userId: user.id,
@@ -50,13 +51,19 @@ export async function GET() {
           },
         })
 
-        const totalOrderAmount = orders.reduce((sum, order) => sum + Number(order.totalAmount), 0)
-        const totalPayments = payments.reduce((sum, payment) => sum + Number(payment.amount), 0)
+        const totalOrderAmount = orders.reduce((sum, order) => {
+          return sum + Number(order.totalAmount)
+        }, 0)
+
+        const totalPayments = payments.reduce((sum, payment) => {
+          return sum + Number(payment.amount)
+        }, 0)
+
         const outstandingBalance = Math.max(0, totalOrderAmount - totalPayments)
 
         return {
           userId: user.id,
-          userName: user.name,
+          userName: user.name || "Unknown",
           userEmail: user.email,
           totalOrderAmount,
           totalPayments,
@@ -69,10 +76,10 @@ export async function GET() {
 
     // Calculate company totals
     const companyTotals = userBalances.reduce(
-      (totals, user) => ({
-        totalOrderAmount: totals.totalOrderAmount + user.totalOrderAmount,
-        totalPayments: totals.totalPayments + user.totalPayments,
-        totalOutstanding: totals.totalOutstanding + user.outstandingBalance,
+      (totals, userBalance) => ({
+        totalOrderAmount: totals.totalOrderAmount + userBalance.totalOrderAmount,
+        totalPayments: totals.totalPayments + userBalance.totalPayments,
+        totalOutstanding: totals.totalOutstanding + userBalance.outstandingBalance,
       }),
       { totalOrderAmount: 0, totalPayments: 0, totalOutstanding: 0 },
     )

@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "sonner"
 import { CreditCard, Plus, Upload, Camera, X, Eye, AlertTriangle, DollarSign, Receipt } from "lucide-react"
 
@@ -23,6 +24,8 @@ interface Payment {
   receiptUrl?: string
   paymentDate: string
   createdAt: string
+  isFromCredit: boolean
+  creditAmount: number
 }
 
 interface UserBalance {
@@ -31,6 +34,8 @@ interface UserBalance {
   outstandingBalance: number
   orders: number
   payments: number
+  creditLimit: number
+  creditUsed: number
 }
 
 export default function PaymentsPage() {
@@ -53,6 +58,7 @@ export default function PaymentsPage() {
   const [amount, setAmount] = useState("")
   const [description, setDescription] = useState("")
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split("T")[0])
+  const [useCredit, setUseCredit] = useState(false)
 
   useEffect(() => {
     if (session) {
@@ -209,7 +215,9 @@ export default function PaymentsPage() {
         receiptUrl = await uploadFile(selectedFile)
       }
 
-      const response = await fetch("/api/user/payments", {
+      const endpoint = useCredit ? "/api/user/credit-payment" : "/api/user/payments"
+
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -223,7 +231,12 @@ export default function PaymentsPage() {
       })
 
       if (response.ok) {
-        toast.success("Payment recorded successfully")
+        const result = await response.json()
+        if (useCredit && result.creditPaid > 0) {
+          toast.success(`Payment processed! Credit used: ${formatCurrency(result.creditPaid)}`)
+        } else {
+          toast.success("Payment recorded successfully")
+        }
         setIsCreateDialogOpen(false)
         resetForm()
         fetchPayments()
@@ -243,6 +256,7 @@ export default function PaymentsPage() {
     setAmount("")
     setDescription("")
     setPaymentDate(new Date().toISOString().split("T")[0])
+    setUseCredit(false)
     removeFile()
     stopCamera()
   }
@@ -343,6 +357,8 @@ export default function PaymentsPage() {
     )
   }
 
+  const availableCredit = (userBalance?.creditLimit || 0) - (userBalance?.creditUsed || 0)
+
   return (
     <div className="flex h-screen bg-background">
       <Sidebar userRole={userRole} companyName={companyName} />
@@ -411,6 +427,27 @@ export default function PaymentsPage() {
                         required
                       />
                     </div>
+
+                    {/* Credit Payment Option */}
+                    {availableCredit > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="useCredit"
+                            checked={useCredit}
+                            onCheckedChange={(checked) => setUseCredit(checked as boolean)}
+                          />
+                          <Label htmlFor="useCredit" className="text-sm">
+                            Pay from credit balance (Available: {formatCurrency(availableCredit)})
+                          </Label>
+                        </div>
+                        {useCredit && (
+                          <div className="text-sm text-muted-foreground bg-blue-50 p-2 rounded">
+                            Credit will be used first, then regular payment for any remaining amount.
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Receipt Upload Section */}
                     <div className="space-y-2">
@@ -499,7 +536,7 @@ export default function PaymentsPage() {
             </div>
 
             {/* Balance Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Outstanding Balance Card */}
               <Card
                 className={
@@ -557,6 +594,22 @@ export default function PaymentsPage() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Credit Balance Card */}
+              {(userBalance?.creditLimit || 0) > 0 && (
+                <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-blue-700 dark:text-blue-300">Credit Available</p>
+                        <p className="text-3xl font-bold text-blue-600">{formatCurrency(availableCredit)}</p>
+                        <p className="text-xs text-blue-600">Limit: {formatCurrency(userBalance?.creditLimit || 0)}</p>
+                      </div>
+                      <CreditCard className="w-12 h-12 text-blue-500" />
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </div>
 
             {/* Outstanding Balance Alert */}
@@ -608,6 +661,7 @@ export default function PaymentsPage() {
                           <TableHead>Amount</TableHead>
                           <TableHead>Description</TableHead>
                           <TableHead>Payment Date</TableHead>
+                          <TableHead>Type</TableHead>
                           <TableHead>Receipt</TableHead>
                           <TableHead>Recorded</TableHead>
                         </TableRow>
@@ -618,6 +672,20 @@ export default function PaymentsPage() {
                             <TableCell className="font-semibold">{formatCurrency(payment.amount)}</TableCell>
                             <TableCell>{payment.description}</TableCell>
                             <TableCell>{new Date(payment.paymentDate).toLocaleDateString()}</TableCell>
+                            <TableCell>
+                              {payment.isFromCredit ? (
+                                <div>
+                                  <Badge variant="secondary">Credit Payment</Badge>
+                                  {payment.creditAmount > 0 && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Credit: {formatCurrency(payment.creditAmount)}
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <Badge variant="outline">Regular</Badge>
+                              )}
+                            </TableCell>
                             <TableCell>
                               {payment.receiptUrl ? (
                                 <Button variant="outline" size="sm" asChild>
