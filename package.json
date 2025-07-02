@@ -4,11 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
+    "postinstall": "prisma generate",
+    "vercel-build": "prisma migrate deploy && prisma generate && next build",
     "db:generate": "npx prisma generate",
     "db:push": "npx prisma db push",
+    "db:migrate": "npx prisma migrate deploy",
     "db:seed": "node prisma/seed.js",
     "db:reset": "node scripts/reset-db.js && npm run db:seed",
     "db:studio": "npx prisma studio"
