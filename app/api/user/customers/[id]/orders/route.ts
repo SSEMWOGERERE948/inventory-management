@@ -9,31 +9,25 @@ export async function POST(request: Request, { params }: { params: { id: string 
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session?.user?.id) {
+    if (!session || !session.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { productId, quantity, unitPrice, orderDate } = await request.json()
+    const { productId, quantity, unitPrice } = await request.json()
+    const customerId = params.id
 
-    if (!productId || !quantity || !unitPrice || !orderDate) {
-      return NextResponse.json({ error: "All fields are required" }, { status: 400 })
+    if (!productId || !quantity || !unitPrice) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    const orderQuantity = Number(quantity)
-    const orderUnitPrice = Number(unitPrice)
-
-    if (orderQuantity <= 0) {
+    if (quantity <= 0) {
       return NextResponse.json({ error: "Quantity must be greater than 0" }, { status: 400 })
     }
 
-    if (orderUnitPrice <= 0) {
-      return NextResponse.json({ error: "Unit price must be greater than 0" }, { status: 400 })
-    }
-
-    // Verify customer belongs to user
+    // Check if customer exists and belongs to user
     const customer = await prisma.customer.findFirst({
       where: {
-        id: params.id,
+        id: customerId,
         userId: session.user.id,
       },
     })
@@ -42,62 +36,87 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ error: "Customer not found" }, { status: 404 })
     }
 
-    // Verify product exists and check stock
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
+    // Check user's inventory for this product
+    const userInventory = await prisma.userInventory.findUnique({
+      where: {
+        userId_productId: {
+          userId: session.user.id,
+          productId: productId,
+        },
+      },
+      include: {
+        product: true,
+      },
     })
 
-    if (!product) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 })
+    if (!userInventory) {
+      return NextResponse.json({ error: "Product not found in your inventory" }, { status: 400 })
     }
 
-    if (product.quantity < orderQuantity) {
+    if (userInventory.quantityAvailable < quantity) {
       return NextResponse.json(
-        { error: `Insufficient stock. Available: ${product.quantity}, Required: ${orderQuantity}` },
+        {
+          error: `Insufficient inventory. Available: ${userInventory.quantityAvailable}, Requested: ${quantity}`,
+        },
         { status: 400 },
       )
     }
 
-    const totalAmount = orderUnitPrice * orderQuantity
+    const totalAmount = Number(unitPrice) * quantity
 
-    // Start transaction to create order and update stock
+    // Use transaction to ensure data consistency
     const result = await prisma.$transaction(async (tx) => {
       // Create customer order
-      const order = await tx.customerOrder.create({
+      const customerOrder = await tx.customerOrder.create({
         data: {
-          customerId: params.id,
+          customerId,
           productId,
-          quantity: orderQuantity,
-          unitPrice: orderUnitPrice,
+          quantity,
+          unitPrice,
           totalAmount,
+          orderDate: new Date(),
+          isPaid: false,
           paidAmount: 0,
           remainingAmount: totalAmount,
-          isPaid: false,
-          orderDate: new Date(orderDate),
         },
         include: {
           product: {
             select: {
+              id: true,
               name: true,
               sku: true,
+              price: true,
+            },
+          },
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              email: true,
             },
           },
         },
       })
 
-      // Reduce product stock
-      await tx.product.update({
-        where: { id: productId },
-        data: {
-          quantity: {
-            decrement: orderQuantity,
+      // Update user inventory
+      await tx.userInventory.update({
+        where: {
+          userId_productId: {
+            userId: session.user.id,
+            productId: productId,
           },
+        },
+        data: {
+          quantityUsed: userInventory.quantityUsed + quantity,
+          quantityAvailable: userInventory.quantityAvailable - quantity,
+          lastUpdated: new Date(),
         },
       })
 
       // Update customer totals
       await tx.customer.update({
-        where: { id: params.id },
+        where: { id: customerId },
         data: {
           totalCredit: {
             increment: totalAmount,
@@ -108,45 +127,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
         },
       })
 
-      // Check if stock alert needed
-      const updatedProduct = await tx.product.findUnique({
-        where: { id: productId },
-      })
-
-      if (updatedProduct && updatedProduct.quantity <= updatedProduct.minStock && session.user.companyId) {
-        let alertType = "MEDIUM"
-        let message = `${updatedProduct.name} is below minimum stock level (${updatedProduct.quantity} remaining)`
-
-        if (updatedProduct.quantity === 0) {
-          alertType = "CRITICAL"
-          message = `${updatedProduct.name} is out of stock!`
-        } else if (updatedProduct.quantity <= 5) {
-          alertType = "HIGH"
-          message = `${updatedProduct.name} is running low (${updatedProduct.quantity} remaining)`
-        }
-
-        // Check if alert already exists
-        const existingAlert = await tx.stockAlert.findFirst({
-          where: {
-            productId,
-            companyId: session.user.companyId,
-            isResolved: false,
-          },
-        })
-
-        if (!existingAlert) {
-          await tx.stockAlert.create({
-            data: {
-              productId,
-              companyId: session.user.companyId,
-              alertType,
-              message,
-            },
-          })
-        }
-      }
-
-      return order
+      return customerOrder
     })
 
     return NextResponse.json({
@@ -158,6 +139,62 @@ export async function POST(request: Request, { params }: { params: { id: string 
     })
   } catch (error) {
     console.error("Error creating customer order:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
+export async function GET(request: Request, { params }: { params: { id: string } }) {
+  try {
+    const session = await getServerSession(authOptions)
+
+    if (!session || !session.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const customerId = params.id
+
+    // Verify customer belongs to user
+    const customer = await prisma.customer.findFirst({
+      where: {
+        id: customerId,
+        userId: session.user.id,
+      },
+    })
+
+    if (!customer) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 })
+    }
+
+    const orders = await prisma.customerOrder.findMany({
+      where: {
+        customerId,
+      },
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            price: true,
+          },
+        },
+      },
+      orderBy: {
+        orderDate: "desc",
+      },
+    })
+
+    const ordersWithNumbers = orders.map((order) => ({
+      ...order,
+      unitPrice: Number(order.unitPrice),
+      totalAmount: Number(order.totalAmount),
+      paidAmount: Number(order.paidAmount),
+      remainingAmount: Number(order.remainingAmount),
+    }))
+
+    return NextResponse.json(ordersWithNumbers)
+  } catch (error) {
+    console.error("Error fetching customer orders:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

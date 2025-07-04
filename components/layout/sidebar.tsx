@@ -56,7 +56,7 @@ const directorNavItems: NavItem[] = [
   { name: 'Payments', href: '/director/payments', icon: DollarSign },
   { name: 'Expenses', href: '/director/expenses', icon: FileText },
   { name: 'Performance', href: '/director/performance', icon: TrendingUp },
-  { name: 'Stock Alerts', href: '/director/stock-alerts', icon: AlertTriangle, badge: '3' },
+  // { name: 'Stock Alerts', href: '/director/stock-alerts', icon: AlertTriangle, badge: '3' },
 ]
 
 const userNavItems: NavItem[] = [

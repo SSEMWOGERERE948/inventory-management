@@ -22,7 +22,7 @@ interface Product {
   name: string
   sku: string
   price: number
-  quantity: number
+  quantity?: number // Optional for ordering products
 }
 
 interface OrderItem {
@@ -34,7 +34,7 @@ interface OrderItem {
 interface Order {
   id: string
   status: string
-  totalAmount?: number // Made optional since it might be undefined
+  totalAmount?: number
   notes: string
   createdAt: string
   items: Array<{
@@ -54,7 +54,7 @@ export default function UserOrdersPage() {
   const { data: session, status } = useSession()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [orders, setOrders] = useState<Order[]>([])
-  const [products, setProducts] = useState<Product[]>([])
+  const [orderingProducts, setOrderingProducts] = useState<Product[]>([]) // Products for ordering
   const [loading, setLoading] = useState(true)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [orderItems, setOrderItems] = useState<OrderItem[]>([{ productId: "", quantity: 1 }])
@@ -63,7 +63,7 @@ export default function UserOrdersPage() {
   useEffect(() => {
     if (session) {
       fetchOrders()
-      fetchProducts()
+      fetchOrderingProducts() // Fetch products specifically for ordering
     }
   }, [session])
 
@@ -83,15 +83,21 @@ export default function UserOrdersPage() {
     }
   }
 
-  const fetchProducts = async () => {
+  const fetchOrderingProducts = async () => {
     try {
-      const response = await fetch("/api/user/products")
+      // Fetch products specifically for ordering (all company products)
+      const response = await fetch("/api/user/products?purpose=ordering")
       if (response.ok) {
         const data = await response.json()
-        setProducts(data)
+        console.log("🛒 Ordering products fetched:", data)
+        setOrderingProducts(data)
+      } else {
+        console.error("Failed to fetch ordering products")
+        toast.error("Failed to fetch products for ordering")
       }
     } catch (error) {
-      console.error("Error fetching products:", error)
+      console.error("Error fetching ordering products:", error)
+      toast.error("Error fetching products")
     }
   }
 
@@ -151,7 +157,6 @@ export default function UserOrdersPage() {
     if (order.totalAmount !== undefined && order.totalAmount !== null) {
       return order.totalAmount
     }
-
     // Calculate from items if totalAmount is not available
     return order.items.reduce((total, item) => {
       return total + (item.totalPrice || item.unitPrice * item.quantity || 0)
@@ -160,7 +165,6 @@ export default function UserOrdersPage() {
 
   // Helper function to safely format currency
   const formatCurrency = (amount: number | undefined | null): string => {
-    // Convert to number and check if valid
     const numAmount = Number(amount)
     if (amount === undefined || amount === null || isNaN(numAmount) || !isFinite(numAmount)) {
       return "UGX 0.00"
@@ -220,7 +224,6 @@ export default function UserOrdersPage() {
           isOpen={isMobileMenuOpen}
           onClose={() => setIsMobileMenuOpen(false)}
         />
-
         <div className="flex-1 flex flex-col overflow-hidden">
           <Header
             user={{
@@ -231,7 +234,6 @@ export default function UserOrdersPage() {
             }}
             onMobileMenuToggle={() => setIsMobileMenuOpen(true)}
           />
-
           <main className="flex-1 overflow-y-auto p-4 lg:p-6">
             <div className="max-w-7xl mx-auto space-y-6">
               <div className="flex items-center justify-center h-64">Please sign in to view orders</div>
@@ -291,6 +293,18 @@ export default function UserOrdersPage() {
                         </Button>
                       </div>
 
+                      {/* Debug info */}
+                      {orderingProducts.length === 0 && (
+                        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                          <p className="text-sm text-yellow-800">
+                            No products available for ordering. Contact your administrator.
+                          </p>
+                          <p className="text-xs text-yellow-600 mt-1">
+                            Debug: Found {orderingProducts.length} products
+                          </p>
+                        </div>
+                      )}
+
                       {orderItems.map((item, index) => (
                         <div key={index} className="flex gap-2 items-end">
                           <div className="flex-1">
@@ -302,14 +316,13 @@ export default function UserOrdersPage() {
                               required
                             >
                               <option value="">Select a product</option>
-                              {products.map((product) => (
+                              {orderingProducts.map((product) => (
                                 <option key={product.id} value={product.id}>
                                   {product.name} ({product.sku}) - UGX {product.price.toLocaleString()}
                                 </option>
                               ))}
                             </select>
                           </div>
-
                           <div className="w-24">
                             <Label>Quantity</Label>
                             <Input
@@ -320,7 +333,6 @@ export default function UserOrdersPage() {
                               required
                             />
                           </div>
-
                           {orderItems.length > 1 && (
                             <Button type="button" variant="outline" size="sm" onClick={() => removeOrderItem(index)}>
                               Remove

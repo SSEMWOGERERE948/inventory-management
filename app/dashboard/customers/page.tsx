@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
-import { Users, Plus, CreditCard, DollarSign, AlertTriangle, ShoppingCart, Receipt } from "lucide-react"
+import { Users, Plus, CreditCard, DollarSign, AlertTriangle, ShoppingCart, Receipt, Package } from "lucide-react"
 
 interface Customer {
   id: string
@@ -38,6 +38,13 @@ interface Product {
   sku: string
   price: number
   quantity: number
+  quantityReceived: number
+  quantityUsed: number
+  description?: string
+  category?: {
+    id: string
+    name: string
+  }
 }
 
 export default function CustomersPage() {
@@ -165,6 +172,7 @@ export default function CustomersPage() {
         setIsAddOrderDialogOpen(false)
         resetOrderForm()
         fetchCustomers()
+        fetchProducts() // Refresh products to show updated inventory
       } else {
         const error = await response.json()
         toast.error(error.error || "Failed to add order")
@@ -247,6 +255,10 @@ export default function CustomersPage() {
     return customers.reduce((total, customer) => total + customer.totalPaid, 0)
   }
 
+  const getTotalInventoryValue = (): number => {
+    return products.reduce((total, product) => total + product.price * product.quantity, 0)
+  }
+
   if (status === "loading") {
     return <div className="flex items-center justify-center h-screen">Loading...</div>
   }
@@ -261,6 +273,8 @@ export default function CustomersPage() {
     role: (session.user?.role as string) || "USER",
     companyName: (session.user?.companyId as string) || "Your Company",
   }
+
+  const availableProducts = products.filter((p) => p.quantity > 0)
 
   return (
     <div className="flex h-screen bg-background">
@@ -283,7 +297,7 @@ export default function CustomersPage() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-bold text-foreground">Customer Credit Management</h1>
-                <p className="text-muted-foreground">Manage customers who buy on credit and track payments</p>
+                <p className="text-muted-foreground">Manage customers who buy on credit from your approved inventory</p>
               </div>
 
               <div className="flex gap-2">
@@ -347,7 +361,7 @@ export default function CustomersPage() {
             </div>
 
             {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <Card>
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
@@ -364,10 +378,23 @@ export default function CustomersPage() {
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-muted-foreground">Total Credit Given</p>
-                      <p className="text-3xl font-bold">{formatCurrency(getTotalCredit())}</p>
+                      <p className="text-sm text-muted-foreground">Available Products</p>
+                      <p className="text-3xl font-bold">{availableProducts.length}</p>
+                      <p className="text-xs text-muted-foreground">From approved orders</p>
                     </div>
-                    <CreditCard className="w-12 h-12 text-blue-600" />
+                    <Package className="w-12 h-12 text-blue-600" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Inventory Value</p>
+                      <p className="text-3xl font-bold">{formatCurrency(getTotalInventoryValue())}</p>
+                    </div>
+                    <CreditCard className="w-12 h-12 text-green-600" />
                   </div>
                 </CardContent>
               </Card>
@@ -396,6 +423,24 @@ export default function CustomersPage() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Inventory Alert */}
+            {availableProducts.length === 0 && (
+              <Card className="border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-4">
+                    <AlertTriangle className="h-8 w-8 text-orange-500" />
+                    <div>
+                      <h3 className="font-semibold text-orange-800 dark:text-orange-200">No Inventory Available</h3>
+                      <p className="text-sm text-orange-700 dark:text-orange-300">
+                        You don't have any products in your inventory. Please place an order with the director first to
+                        receive products that you can then sell on credit to customers.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Customers Table */}
             <Card>
@@ -459,9 +504,20 @@ export default function CustomersPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex gap-2">
-                                <Dialog open={isAddOrderDialogOpen} onOpenChange={setIsAddOrderDialogOpen}>
+                                <Dialog
+                                  open={isAddOrderDialogOpen && selectedCustomer?.id === customer.id}
+                                  onOpenChange={(open) => {
+                                    setIsAddOrderDialogOpen(open)
+                                    if (!open) setSelectedCustomer(null)
+                                  }}
+                                >
                                   <DialogTrigger asChild>
-                                    <Button variant="outline" size="sm" onClick={() => setSelectedCustomer(customer)}>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => setSelectedCustomer(customer)}
+                                      disabled={availableProducts.length === 0}
+                                    >
                                       <ShoppingCart className="h-4 w-4 mr-1" />
                                       Add Order
                                     </Button>
@@ -487,14 +543,17 @@ export default function CustomersPage() {
                                           required
                                         >
                                           <option value="">Select a product</option>
-                                          {products
-                                            .filter((p) => p.quantity > 0)
-                                            .map((product) => (
-                                              <option key={product.id} value={product.id}>
-                                                {product.name} ({product.sku}) - Stock: {product.quantity}
-                                              </option>
-                                            ))}
+                                          {availableProducts.map((product) => (
+                                            <option key={product.id} value={product.id}>
+                                              {product.name} ({product.sku}) - Available: {product.quantity}
+                                            </option>
+                                          ))}
                                         </select>
+                                        {availableProducts.length === 0 && (
+                                          <p className="text-sm text-red-600">
+                                            No products available. Please order from director first.
+                                          </p>
+                                        )}
                                       </div>
                                       <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
@@ -503,6 +562,11 @@ export default function CustomersPage() {
                                             id="quantity"
                                             type="number"
                                             min="1"
+                                            max={
+                                              selectedProductId
+                                                ? products.find((p) => p.id === selectedProductId)?.quantity || 0
+                                                : 0
+                                            }
                                             value={orderQuantity}
                                             onChange={(e) => setOrderQuantity(e.target.value)}
                                             required
@@ -531,11 +595,19 @@ export default function CustomersPage() {
                                           required
                                         />
                                       </div>
-                                      {orderQuantity && orderUnitPrice && (
+                                      {selectedProductId && (
                                         <div className="p-3 bg-muted rounded">
-                                          <p className="text-sm font-medium">
-                                            Total: {formatCurrency(Number(orderQuantity) * Number(orderUnitPrice))}
+                                          <p className="text-sm">
+                                            Available:{" "}
+                                            <span className="font-semibold">
+                                              {products.find((p) => p.id === selectedProductId)?.quantity || 0}
+                                            </span>
                                           </p>
+                                          {orderQuantity && orderUnitPrice && (
+                                            <p className="text-sm font-medium">
+                                              Total: {formatCurrency(Number(orderQuantity) * Number(orderUnitPrice))}
+                                            </p>
+                                          )}
                                         </div>
                                       )}
                                       <Button type="submit" className="w-full" disabled={isSubmitting}>
@@ -545,7 +617,13 @@ export default function CustomersPage() {
                                   </DialogContent>
                                 </Dialog>
 
-                                <Dialog open={isAddPaymentDialogOpen} onOpenChange={setIsAddPaymentDialogOpen}>
+                                <Dialog
+                                  open={isAddPaymentDialogOpen && selectedCustomer?.id === customer.id}
+                                  onOpenChange={(open) => {
+                                    setIsAddPaymentDialogOpen(open)
+                                    if (!open) setSelectedCustomer(null)
+                                  }}
+                                >
                                   <DialogTrigger asChild>
                                     <Button
                                       variant="outline"

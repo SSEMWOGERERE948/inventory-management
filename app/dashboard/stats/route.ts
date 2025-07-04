@@ -63,6 +63,48 @@ export async function GET() {
         totalExpenses: totalExpenses._sum.amount || 0,
       })
     } else {
+      // Get user's inventory data
+      const userInventory = await prisma.userInventory.findMany({
+        where: { userId: session.user.id },
+        include: {
+          product: true,
+        },
+      })
+
+      // Get user's customers
+      const userCustomers = await prisma.customer.findMany({
+        where: { userId: session.user.id },
+      })
+
+      // Calculate current month revenue
+      const currentMonth = new Date().getMonth()
+      const currentYear = new Date().getFullYear()
+      const monthlyRevenue = await prisma.payment.aggregate({
+        where: {
+          userId: session.user.id,
+          paymentDate: {
+            gte: new Date(currentYear, currentMonth, 1),
+            lt: new Date(currentYear, currentMonth + 1, 1),
+          },
+        },
+        _sum: {
+          amount: true,
+        },
+      })
+
+      // Calculate inventory stats
+      const totalProducts = userInventory.length
+      const productsInStock = userInventory.filter((item) => item.quantityAvailable > 0).length
+      const outOfStockProducts = userInventory.filter((item) => item.quantityAvailable === 0).length
+      const lowStockProducts = userInventory.filter(
+        (item) => item.quantityAvailable > 0 && item.quantityAvailable <= 5,
+      ).length
+      const totalQuantityAvailable = userInventory.reduce((sum, item) => sum + item.quantityAvailable, 0)
+      const inventoryValue = userInventory.reduce(
+        (sum, item) => sum + item.quantityAvailable * Number(item.product.price),
+        0,
+      )
+
       const [userOrders, userPayments, userExpenses] = await Promise.all([
         prisma.orderRequest.count({
           where: { userId: session.user.id },
@@ -85,6 +127,21 @@ export async function GET() {
         userOrders,
         userPayments: userPayments._sum.amount || 0,
         userExpenses: userExpenses._sum.amount || 0,
+        // Inventory data
+        inventory: {
+          totalProducts,
+          productsInStock,
+          outOfStockProducts,
+          lowStockProducts,
+          totalQuantityAvailable,
+          inventoryValue,
+        },
+        // Customer data
+        customers: {
+          totalCustomers: userCustomers.length,
+        },
+        // Monthly revenue
+        monthlyRevenue: monthlyRevenue._sum.amount || 0,
       })
     }
   } catch (error) {

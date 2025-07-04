@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useEffect, useState } from "react"
 import { useSession } from "next-auth/react"
 import { Sidebar, MobileSidebar } from "@/components/layout/sidebar"
@@ -14,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import { ShoppingCart, Clock, CheckCircle, XCircle, Truck, Package, RefreshCw, Bug } from "lucide-react"
+import { ShoppingCart, Clock, CheckCircle, XCircle, Truck, Package, RefreshCw, Bug, AlertTriangle } from "lucide-react"
 
 interface OrderItem {
   id: string
@@ -25,6 +24,9 @@ interface OrderItem {
     id: string
     name: string
     sku: string
+    quantity?: number
+    stockQuantity?: number
+    minStockLevel?: number
   }
 }
 
@@ -46,6 +48,13 @@ interface Order {
   items: OrderItem[]
 }
 
+interface StockUpdate {
+  productName: string
+  currentStock: number
+  requiredQuantity: number
+  newStock: number
+}
+
 interface DebugInfo {
   session: any
   ordersSummary: {
@@ -65,6 +74,7 @@ const DirectorOrdersPage: React.FC = () => {
   const [notes, setNotes] = useState("")
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null)
   const [showDebug, setShowDebug] = useState(false)
+  const [stockUpdates, setStockUpdates] = useState<StockUpdate[]>([])
 
   useEffect(() => {
     if (session) {
@@ -127,6 +137,7 @@ const DirectorOrdersPage: React.FC = () => {
 
   const updateOrderStatus = async (orderId: string, newStatus: string) => {
     setUpdating(orderId)
+    setStockUpdates([])
     try {
       console.log(`🔄 Updating order ${orderId} to status: ${newStatus}`)
 
@@ -149,12 +160,20 @@ const DirectorOrdersPage: React.FC = () => {
       })
 
       if (response.ok) {
-        const updatedOrder = await response.json()
-        console.log("✅ Order updated successfully:", updatedOrder.id)
+        const result = await response.json()
+        console.log("✅ Order updated successfully:", result.id)
 
-        setOrders(orders.map((order) => (order.id === orderId ? updatedOrder : order)))
+        // Update the orders list
+        setOrders(orders.map((order) => (order.id === orderId ? result : order)))
 
-        toast.success(`Order ${newStatus.toLowerCase()} successfully`)
+        // Show stock updates if this was a shipment
+        if (result.stockUpdates && result.stockUpdates.length > 0) {
+          setStockUpdates(result.stockUpdates)
+          toast.success(`Order shipped successfully! Stock updated for ${result.stockUpdates.length} products.`)
+        } else {
+          toast.success(`Order ${newStatus.toLowerCase()} successfully`)
+        }
+
         setSelectedOrder(null)
         setNotes("")
       } else {
@@ -168,6 +187,11 @@ const DirectorOrdersPage: React.FC = () => {
     } finally {
       setUpdating(null)
     }
+  }
+
+  const getOrderId = (order: Order): string => {
+    if (!order?.id) return "N/A"
+    return order.id.length > 8 ? order.id.slice(-8) : order.id
   }
 
   const getStatusIcon = (status: string) => {
@@ -210,6 +234,21 @@ const DirectorOrdersPage: React.FC = () => {
       return "UGX 0.00"
     }
     return `UGX ${numAmount.toLocaleString()}`
+  }
+
+  const checkStockAvailability = (order: Order): { canShip: boolean; issues: string[] } => {
+    const issues: string[] = []
+    let canShip = true
+
+    for (const item of order.items) {
+      const currentStock = item.product.stockQuantity ?? item.product.quantity ?? 0
+      if (currentStock < item.quantity) {
+        canShip = false
+        issues.push(`${item.product.name}: Need ${item.quantity}, Available ${currentStock}`)
+      }
+    }
+
+    return { canShip, issues }
   }
 
   if (status === "loading") {
@@ -262,6 +301,33 @@ const DirectorOrdersPage: React.FC = () => {
                 </Button>
               </div>
             </div>
+
+            {/* Stock Updates Display */}
+            {stockUpdates.length > 0 && (
+              <Card className="border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950">
+                <CardHeader>
+                  <CardTitle className="text-green-800 dark:text-green-200 flex items-center gap-2">
+                    <CheckCircle className="h-5 w-5" />
+                    Stock Updated Successfully
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {stockUpdates.map((update, index) => (
+                      <div key={index} className="flex justify-between items-center text-sm">
+                        <span className="font-medium">{update.productName}</span>
+                        <span className="text-muted-foreground">
+                          {update.currentStock} → {update.newStock} (-{update.requiredQuantity})
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <Button onClick={() => setStockUpdates([])} variant="outline" size="sm" className="mt-4">
+                    Dismiss
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Debug Info Card */}
             {showDebug && debugInfo && (
@@ -322,70 +388,210 @@ const DirectorOrdersPage: React.FC = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {orders.map((order) => (
-                          <TableRow key={order.id}>
-                            <TableCell className="font-mono text-sm">{order.id.slice(-8)}</TableCell>
-                            <TableCell>
-                              <div>
-                                <p className="font-medium">{order.user.name}</p>
-                                <p className="text-sm text-muted-foreground">{order.user.email}</p>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="space-y-1">
-                                {order.items.map((item, index) => (
-                                  <div key={index} className="text-sm">
-                                    {item.product.name} × {item.quantity}
-                                  </div>
-                                ))}
-                              </div>
-                            </TableCell>
-                            <TableCell>{formatCurrency(order.totalAmount)}</TableCell>
-                            <TableCell>
-                              <Badge className={getStatusColor(order.status)}>
-                                <div className="flex items-center gap-1">
-                                  {getStatusIcon(order.status)}
-                                  {order.status}
+                        {orders.map((order) => {
+                          const stockCheck = checkStockAvailability(order)
+                          return (
+                            <TableRow key={order.id || `order-${Math.random()}`}>
+                              <TableCell className="font-mono text-sm">{getOrderId(order)}</TableCell>
+                              <TableCell>
+                                <div>
+                                  <p className="font-medium">{order.user?.name || "Unknown User"}</p>
+                                  <p className="text-sm text-muted-foreground">{order.user?.email || "No email"}</p>
                                 </div>
-                              </Badge>
-                            </TableCell>
-                            <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
-                                {order.status === "PENDING" && (
-                                  <>
+                              </TableCell>
+                              <TableCell>
+                                <div className="space-y-1">
+                                  {order.items?.map((item, index) => {
+                                    const currentStock = item.product?.stockQuantity ?? item.product?.quantity ?? 0
+                                    const hasStock = currentStock >= item.quantity
+                                    return (
+                                      <div key={index} className="text-sm flex items-center gap-2">
+                                        <span>
+                                          {item.product?.name || "Unknown Product"} × {item.quantity}
+                                        </span>
+                                        {!hasStock && (
+                                          <AlertTriangle className="h-3 w-3 text-red-500" />
+                                        )}
+                                        <span className="text-xs text-muted-foreground">(Stock: {currentStock})</span>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </TableCell>
+                              <TableCell>{formatCurrency(order.totalAmount)}</TableCell>
+                              <TableCell>
+                                <Badge className={getStatusColor(order.status)}>
+                                  <div className="flex items-center gap-1">
+                                    {getStatusIcon(order.status)}
+                                    {order.status}
+                                  </div>
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  {order.status === "PENDING" && (
+                                    <>
+                                      <Dialog>
+                                        <DialogTrigger asChild>
+                                          <Button
+                                            size="sm"
+                                            onClick={() => setSelectedOrder(order)}
+                                            disabled={updating === order.id}
+                                          >
+                                            Approve
+                                          </Button>
+                                        </DialogTrigger>
+                                        <DialogContent>
+                                          <DialogHeader>
+                                            <DialogTitle>Approve Order</DialogTitle>
+                                          </DialogHeader>
+                                          <div className="space-y-4">
+                                            <p>Are you sure you want to approve this order?</p>
+                                            <div>
+                                              <Label htmlFor="notes">Notes (Optional)</Label>
+                                              <Textarea
+                                                id="notes"
+                                                value={notes}
+                                                onChange={(e) => setNotes(e.target.value)}
+                                                placeholder="Add any notes..."
+                                              />
+                                            </div>
+                                            <div className="flex gap-2">
+                                              <Button
+                                                onClick={() => updateOrderStatus(order.id, "APPROVED")}
+                                                disabled={updating === order.id}
+                                              >
+                                                {updating === order.id ? "Approving..." : "Approve"}
+                                              </Button>
+                                              <Button variant="outline" onClick={() => setSelectedOrder(null)}>
+                                                Cancel
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        </DialogContent>
+                                      </Dialog>
+
+                                      <Dialog>
+                                        <DialogTrigger asChild>
+                                          <Button
+                                            size="sm"
+                                            variant="destructive"
+                                            onClick={() => setSelectedOrder(order)}
+                                            disabled={updating === order.id}
+                                          >
+                                            Reject
+                                          </Button>
+                                        </DialogTrigger>
+                                        <DialogContent>
+                                          <DialogHeader>
+                                            <DialogTitle>Reject Order</DialogTitle>
+                                          </DialogHeader>
+                                          <div className="space-y-4">
+                                            <p>Are you sure you want to reject this order?</p>
+                                            <div>
+                                              <Label htmlFor="reject-notes">Reason for rejection</Label>
+                                              <Textarea
+                                                id="reject-notes"
+                                                value={notes}
+                                                onChange={(e) => setNotes(e.target.value)}
+                                                placeholder="Please provide a reason for rejection..."
+                                                required
+                                              />
+                                            </div>
+                                            <div className="flex gap-2">
+                                              <Button
+                                                variant="destructive"
+                                                onClick={() => updateOrderStatus(order.id, "REJECTED")}
+                                                disabled={updating === order.id || !notes.trim()}
+                                              >
+                                                {updating === order.id ? "Rejecting..." : "Reject"}
+                                              </Button>
+                                              <Button variant="outline" onClick={() => setSelectedOrder(null)}>
+                                                Cancel
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        </DialogContent>
+                                      </Dialog>
+                                    </>
+                                  )}
+
+                                  {order.status === "APPROVED" && (
                                     <Dialog>
                                       <DialogTrigger asChild>
                                         <Button
                                           size="sm"
+                                          variant="outline"
                                           onClick={() => setSelectedOrder(order)}
-                                          disabled={updating === order.id}
+                                          disabled={updating === order.id || !stockCheck.canShip}
                                         >
-                                          Approve
+                                          {!stockCheck.canShip ? (
+                                            <>
+                                              <AlertTriangle className="h-4 w-4 mr-1" />
+                                              Insufficient Stock
+                                            </>
+                                          ) : (
+                                            "Ship Order"
+                                          )}
                                         </Button>
                                       </DialogTrigger>
                                       <DialogContent>
                                         <DialogHeader>
-                                          <DialogTitle>Approve Order</DialogTitle>
+                                          <DialogTitle>Ship Order</DialogTitle>
                                         </DialogHeader>
                                         <div className="space-y-4">
-                                          <p>Are you sure you want to approve this order?</p>
-                                          <div>
-                                            <Label htmlFor="notes">Notes (Optional)</Label>
-                                            <Textarea
-                                              id="notes"
-                                              value={notes}
-                                              onChange={(e) => setNotes(e.target.value)}
-                                              placeholder="Add any notes..."
-                                            />
-                                          </div>
+                                          {!stockCheck.canShip ? (
+                                            <div className="bg-red-50 dark:bg-red-950 p-4 rounded-lg">
+                                              <h4 className="font-semibold text-red-800 dark:text-red-200 mb-2">
+                                                Insufficient Stock
+                                              </h4>
+                                              <ul className="text-sm text-red-700 dark:text-red-300 space-y-1">
+                                                {stockCheck.issues.map((issue, index) => (
+                                                  <li key={index}>• {issue}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          ) : (
+                                            <>
+                                              <p>Are you sure you want to ship this order?</p>
+                                              <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg">
+                                                <h4 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">
+                                                  Stock will be deducted:
+                                                </h4>
+                                                <ul className="text-sm text-blue-700 dark:text-blue-300 space-y-1">
+                                                  {order.items.map((item, index) => {
+                                                    const currentStock =
+                                                      item.product?.stockQuantity ?? item.product?.quantity ?? 0
+                                                    return (
+                                                      <li key={index}>
+                                                        • {item.product?.name}: {currentStock} →{" "}
+                                                        {currentStock - item.quantity} (-{item.quantity})
+                                                      </li>
+                                                    )
+                                                  })}
+                                                </ul>
+                                              </div>
+                                              <div>
+                                                <Label htmlFor="ship-notes">Shipping Notes (Optional)</Label>
+                                                <Textarea
+                                                  id="ship-notes"
+                                                  value={notes}
+                                                  onChange={(e) => setNotes(e.target.value)}
+                                                  placeholder="Add shipping notes..."
+                                                />
+                                              </div>
+                                            </>
+                                          )}
                                           <div className="flex gap-2">
-                                            <Button
-                                              onClick={() => updateOrderStatus(order.id, "APPROVED")}
-                                              disabled={updating === order.id}
-                                            >
-                                              {updating === order.id ? "Approving..." : "Approve"}
-                                            </Button>
+                                            {stockCheck.canShip && (
+                                              <Button
+                                                onClick={() => updateOrderStatus(order.id, "SHIPPED")}
+                                                disabled={updating === order.id}
+                                              >
+                                                {updating === order.id ? "Shipping..." : "Ship Order"}
+                                              </Button>
+                                            )}
                                             <Button variant="outline" onClick={() => setSelectedOrder(null)}>
                                               Cancel
                                             </Button>
@@ -393,77 +599,12 @@ const DirectorOrdersPage: React.FC = () => {
                                         </div>
                                       </DialogContent>
                                     </Dialog>
-
-                                    <Dialog>
-                                      <DialogTrigger asChild>
-                                        <Button
-                                          size="sm"
-                                          variant="destructive"
-                                          onClick={() => setSelectedOrder(order)}
-                                          disabled={updating === order.id}
-                                        >
-                                          Reject
-                                        </Button>
-                                      </DialogTrigger>
-                                      <DialogContent>
-                                        <DialogHeader>
-                                          <DialogTitle>Reject Order</DialogTitle>
-                                        </DialogHeader>
-                                        <div className="space-y-4">
-                                          <p>Are you sure you want to reject this order?</p>
-                                          <div>
-                                            <Label htmlFor="reject-notes">Reason for rejection</Label>
-                                            <Textarea
-                                              id="reject-notes"
-                                              value={notes}
-                                              onChange={(e) => setNotes(e.target.value)}
-                                              placeholder="Please provide a reason for rejection..."
-                                              required
-                                            />
-                                          </div>
-                                          <div className="flex gap-2">
-                                            <Button
-                                              variant="destructive"
-                                              onClick={() => updateOrderStatus(order.id, "REJECTED")}
-                                              disabled={updating === order.id || !notes.trim()}
-                                            >
-                                              {updating === order.id ? "Rejecting..." : "Reject"}
-                                            </Button>
-                                            <Button variant="outline" onClick={() => setSelectedOrder(null)}>
-                                              Cancel
-                                            </Button>
-                                          </div>
-                                        </div>
-                                      </DialogContent>
-                                    </Dialog>
-                                  </>
-                                )}
-
-                                {order.status === "APPROVED" && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => updateOrderStatus(order.id, "FULFILLED")}
-                                    disabled={updating === order.id}
-                                  >
-                                    {updating === order.id ? "Processing..." : "Mark Fulfilled"}
-                                  </Button>
-                                )}
-
-                                {order.status === "FULFILLED" && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => updateOrderStatus(order.id, "SHIPPED")}
-                                    disabled={updating === order.id}
-                                  >
-                                    {updating === order.id ? "Processing..." : "Mark Shipped"}
-                                  </Button>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
                       </TableBody>
                     </Table>
                   </div>

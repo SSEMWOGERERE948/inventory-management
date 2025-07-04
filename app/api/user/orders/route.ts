@@ -1,33 +1,48 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import type { Decimal } from "@prisma/client/runtime/library"
 
 export const dynamic = "force-dynamic"
 
-export async function GET() {
+// Helper function to convert Decimal to number
+function decimalToNumber(value: Decimal | number | null): number {
+  if (value === null) return 0
+  if (typeof value === "number") return value
+  return value.toNumber()
+}
+
+interface OrderItem {
+  productId: string
+  quantity: number
+}
+
+interface StockValidationItem {
+  productId: string
+  productName: string
+  requestedQuantity: number
+  availableStock: number
+  isAvailable: boolean
+  product: {
+    id: string
+    name: string
+    price: number
+    stockQuantity: number | null
+    quantity: number | null
+    minStockLevel: number | null
+    minStock: number | null
+    companyId: string
+  }
+}
+
+// Get user's orders
+export async function GET(request: Request) {
   try {
-    console.log("🔍 User orders GET - Starting request")
-
     const session = await getServerSession(authOptions)
-    console.log("👤 User orders GET - Session:", {
-      exists: !!session,
-      userId: session?.user?.id,
-      role: session?.user?.role,
-      companyId: session?.user?.companyId,
-    })
-
-    if (!session) {
-      console.log("❌ User orders GET - No session found")
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-
-    if (!["USER", "COMPANY_DIRECTOR"].includes(session.user.role)) {
-      console.log("❌ User orders GET - Invalid role:", session.user.role)
-      return NextResponse.json({ error: "Unauthorized - Invalid role" }, { status: 403 })
-    }
-
-    console.log("📦 User orders GET - Fetching orders for user:", session.user.id)
 
     const orders = await prisma.orderRequest.findMany({
       where: {
@@ -41,6 +56,7 @@ export async function GET() {
                 id: true,
                 name: true,
                 sku: true,
+                price: true,
               },
             },
           },
@@ -51,213 +67,155 @@ export async function GET() {
       },
     })
 
-    console.log("✅ User orders GET - Found orders:", orders.length)
-
-    // Convert Decimal fields to numbers
-    const ordersWithNumbers = orders.map((order) => ({
-      ...order,
-      totalAmount: Number(order.totalAmount),
-      items: order.items.map((item) => ({
-        ...item,
-        unitPrice: Number(item.unitPrice),
-        totalPrice: Number(item.totalPrice),
-      })),
-    }))
-
-    return NextResponse.json(ordersWithNumbers)
+    return NextResponse.json(orders)
   } catch (error) {
-    console.error("💥 Error fetching user orders:", error)
+    console.error("Error fetching orders:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-export async function POST(request: NextRequest) {
+// Create new order (no stock deduction - only when shipped)
+export async function POST(request: Request) {
   try {
-    console.log("🆕 User orders POST - Starting request")
-
     const session = await getServerSession(authOptions)
-    console.log("👤 User orders POST - Session:", {
-      exists: !!session,
-      userId: session?.user?.id,
-      role: session?.user?.role,
-      companyId: session?.user?.companyId,
-    })
-
-    if (!session) {
-      console.log("❌ User orders POST - No session found")
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    if (!["USER", "COMPANY_DIRECTOR"].includes(session.user.role)) {
-      console.log("❌ User orders POST - Invalid role:", session.user.role)
-      return NextResponse.json({ error: "Unauthorized - Invalid role" }, { status: 403 })
-    }
-
-    if (!session.user.companyId) {
-      console.log("❌ User orders POST - No company ID")
-      return NextResponse.json({ error: "User not associated with a company" }, { status: 400 })
-    }
-
-    const body = await request.json()
-    const { items, notes } = body
-
-    console.log("📝 User orders POST - Request body:", { itemCount: items?.length, notes })
+    const { items, notes } = await request.json()
 
     if (!items || !Array.isArray(items) || items.length === 0) {
-      console.log("❌ User orders POST - Invalid items")
-      return NextResponse.json({ error: "Items are required" }, { status: 400 })
+      return NextResponse.json({ error: "Order items are required" }, { status: 400 })
     }
 
-    // Validate and fetch product details
-    const productIds = items.map((item: any) => item.productId)
-    const products = await prisma.product.findMany({
-      where: {
-        id: { in: productIds },
-        companyId: session.user.companyId,
-      },
-    })
+    console.log(`[ORDER_CREATE] Creating order for user ${session.user.id} with ${items.length} items`)
 
-    console.log("🛍️ User orders POST - Found products:", products.length)
+    // Validate items and check if products exist (but don't deduct stock yet)
+    const stockValidation: StockValidationItem[] = []
+    let companyId = ""
 
-    if (products.length !== productIds.length) {
-      console.log("❌ User orders POST - Some products not found")
-      return NextResponse.json({ error: "Some products not found" }, { status: 400 })
-    }
+    for (const item of items as OrderItem[]) {
+      if (!item.productId || !item.quantity || item.quantity <= 0) {
+        return NextResponse.json({ error: "Invalid item data" }, { status: 400 })
+      }
 
-    // Check stock availability
-    for (const item of items) {
-      const product = products.find((p) => p.id === item.productId)
+      const product = await prisma.product.findUnique({
+        where: { id: item.productId },
+        select: {
+          id: true,
+          name: true,
+          price: true,
+          stockQuantity: true,
+          quantity: true,
+          minStockLevel: true,
+          minStock: true,
+          companyId: true,
+        },
+      })
+
       if (!product) {
-        return NextResponse.json({ error: `Product ${item.productId} not found` }, { status: 400 })
+        return NextResponse.json({ error: `Product not found: ${item.productId}` }, { status: 404 })
       }
-      if (product.quantity < item.quantity) {
-        return NextResponse.json(
-          {
-            error: `Insufficient stock for ${product.name}. Available: ${product.quantity}, Required: ${item.quantity}`,
-          },
-          { status: 400 },
-        )
+
+      // Set companyId from first product
+      if (!companyId) {
+        companyId = product.companyId
       }
+
+      const currentStock = product.stockQuantity || product.quantity || 0
+      const isAvailable = currentStock >= item.quantity
+
+      console.log(
+        `[ORDER_CREATE] Product ${product.name}: requested=${item.quantity}, available=${currentStock}, sufficient=${isAvailable}`,
+      )
+
+      stockValidation.push({
+        productId: item.productId,
+        productName: product.name,
+        requestedQuantity: item.quantity,
+        availableStock: currentStock,
+        isAvailable,
+        product: {
+          id: product.id,
+          name: product.name,
+          price: decimalToNumber(product.price),
+          stockQuantity: product.stockQuantity,
+          quantity: product.quantity,
+          minStockLevel: product.minStockLevel,
+          minStock: product.minStock,
+          companyId: product.companyId,
+        },
+      })
+    }
+
+    // Check if any items would be out of stock (for validation only)
+    const outOfStockItems = stockValidation.filter((item) => !item.isAvailable)
+    if (outOfStockItems.length > 0) {
+      console.log(`[ORDER_CREATE] Out of stock items found: ${outOfStockItems.length}`)
+      return NextResponse.json(
+        {
+          error: "Insufficient stock for some items",
+          outOfStockItems: outOfStockItems.map((item) => ({
+            productId: item.productId,
+            productName: item.productName,
+            requestedQuantity: item.requestedQuantity,
+            availableStock: item.availableStock,
+          })),
+        },
+        { status: 400 },
+      )
     }
 
     // Calculate total amount
-    let totalAmount = 0
-    const orderItems = items.map((item: any) => {
-      const product = products.find((p) => p.id === item.productId)
-      if (!product) {
-        throw new Error(`Product ${item.productId} not found`)
-      }
+    const totalAmount = stockValidation.reduce((sum, item) => {
+      return sum + item.product.price * item.requestedQuantity
+    }, 0)
 
-      const unitPrice = Number(product.price)
-      const quantity = Number(item.quantity)
-      const totalPrice = unitPrice * quantity
+    // Create order items data
+    const orderItemsData = stockValidation.map((item) => ({
+      productId: item.productId,
+      quantity: item.requestedQuantity,
+      unitPrice: item.product.price,
+      totalPrice: item.product.price * item.requestedQuantity,
+    }))
 
-      totalAmount += totalPrice
-
-      return {
-        productId: item.productId,
-        quantity: quantity,
-        unitPrice: unitPrice,
-        totalPrice: totalPrice,
-      }
-    })
-
-    console.log("💰 User orders POST - Total amount:", totalAmount)
-
-    // Create the order and reduce stock in a transaction
-    const order = await prisma.$transaction(async (tx) => {
-      // Create the order
-      const newOrder = await tx.orderRequest.create({
-        data: {
-          userId: session.user.id,
-          companyId: session.user.companyId,
-          totalAmount: totalAmount,
-          notes: notes || null,
-          items: {
-            create: orderItems,
-          },
+    // Create the order (no stock deduction yet)
+    const order = await prisma.orderRequest.create({
+      data: {
+        userId: session.user.id,
+        companyId,
+        status: "PENDING",
+        notes: notes || null,
+        totalAmount,
+        items: {
+          create: orderItemsData,
         },
-        include: {
-          items: {
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  sku: true,
-                },
+      },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                sku: true,
+                price: true,
               },
             },
           },
         },
-      })
-
-      // Reduce product quantities immediately when order is placed
-      for (const item of orderItems) {
-        const product = products.find((p) => p.id === item.productId)
-        if (product) {
-          const newQuantity = product.quantity - item.quantity
-
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { quantity: newQuantity },
-          })
-
-          // Create stock alert if needed
-          if (newQuantity <= product.minStock) {
-            let alertType = "MEDIUM"
-            let message = `${product.name} is below minimum stock level (${newQuantity} remaining)`
-
-            if (newQuantity === 0) {
-              alertType = "CRITICAL"
-              message = `${product.name} is out of stock!`
-            } else if (newQuantity <= 5) {
-              alertType = "HIGH"
-              message = `${product.name} is running low (${newQuantity} remaining)`
-            }
-
-            // Check if alert already exists
-            const existingAlert = await tx.stockAlert.findFirst({
-              where: {
-                productId: item.productId,
-                companyId: session.user.companyId,
-                isResolved: false,
-              },
-            })
-
-            if (!existingAlert) {
-              await tx.stockAlert.create({
-                data: {
-                  productId: item.productId,
-                  companyId: session.user.companyId,
-                  alertType,
-                  message,
-                },
-              })
-            }
-          }
-        }
-      }
-
-      return newOrder
+      },
     })
 
-    console.log("✅ User orders POST - Order created:", order.id)
+    console.log(`[ORDER_CREATE] Order created successfully: ${order.id}`)
 
-    // Convert Decimal fields to numbers
-    const orderWithNumbers = {
-      ...order,
-      totalAmount: Number(order.totalAmount),
-      items: order.items.map((item) => ({
-        ...item,
-        unitPrice: Number(item.unitPrice),
-        totalPrice: Number(item.totalPrice),
-      })),
-    }
-
-    return NextResponse.json(orderWithNumbers, { status: 201 })
+    return NextResponse.json({
+      success: true,
+      message: "Order created successfully. Stock will be deducted when shipped.",
+      order,
+    })
   } catch (error) {
-    console.error("💥 Error creating user order:", error)
+    console.error("Error creating order:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

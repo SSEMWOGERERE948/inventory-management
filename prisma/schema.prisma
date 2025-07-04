@@ -58,6 +58,9 @@ model User {
   creditTransactions CreditTransaction[]
   customers          Customer[]
   customerPayments   CustomerPayment[]
+  restockRecords     RestockRecord[]
+  userInventory      UserInventory[]
+  stockMovements     StockMovement[]     // New relation for stock movements
   company            Company?            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
@@ -87,6 +90,7 @@ model Company {
   creditTransactions CreditTransaction[]
   stockAlerts        StockAlert[]
   customers          Customer[]
+  restockRecords     RestockRecord[]
 }
 
 model Category {
@@ -96,32 +100,46 @@ model Category {
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-
   products    Product[]
 }
 
 model Product {
-  id          String             @id @default(cuid())
-  name        String
-  description String?
-  sku         String             @unique
-  price       Decimal            @db.Decimal(10, 2)
-  quantity    Int                @default(0)
-  minStock    Int                @default(10)
-  maxStock    Int?
-  isActive    Boolean            @default(true)
-  companyId   String
-  categoryId  String?
-  createdById String
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  id                String             @id @default(cuid())
+  name              String
+  description       String?
+  sku               String             @unique
+  price             Decimal            @db.Decimal(10, 2)
+  
+  // Enhanced Stock Management Fields
+  quantity          Int                @default(0)        // Legacy field - kept for compatibility
+  stockQuantity     Int                @default(0)        // Current actual stock quantity
+  minStock          Int                @default(10)       // Legacy field - kept for compatibility  
+  minStockLevel     Int                @default(10)       // Minimum stock threshold for alerts
+  maxStock          Int?                                  // Legacy field - kept for compatibility
+  maxStockLevel     Int?               @default(1000)     // Maximum stock capacity
+  reorderPoint      Int?               @default(20)       // Automatic reorder trigger point
+  reorderQuantity   Int?               @default(100)      // Suggested reorder quantity
+  lastStockUpdate   DateTime?                             // When stock was last modified
+  stockStatus       String             @default("IN_STOCK") // IN_STOCK, LOW_STOCK, OUT_OF_STOCK, DISCONTINUED
+  
+  // Product Management
+  isActive          Boolean            @default(true)
+  companyId         String
+  categoryId        String?
+  createdById       String
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
-  orderItems     OrderRequestItem[]
-  stockAlerts    StockAlert[]
-  customerOrders CustomerOrder[]
-  category       Category?          @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  company        Company            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdBy      User               @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // Relations
+  orderItems        OrderRequestItem[]
+  stockAlerts       StockAlert[]
+  stockMovements    StockMovement[]    // New relation for tracking stock changes
+  customerOrders    CustomerOrder[]
+  restockRecords    RestockRecord[]
+  userInventory     UserInventory[]
+  category          Category?          @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy         User               @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model OrderRequest {
@@ -204,56 +222,84 @@ model CreditTransaction {
   company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
+// Enhanced Stock Alert Model
 model StockAlert {
-  id          String   @id @default(cuid())
-  productId   String
-  companyId   String
-  alertType   String   // CRITICAL, HIGH, MEDIUM
-  message     String
-  isResolved  Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-}
-
-model Customer {
-  id             String            @id @default(cuid())
-  name           String
-  phone          String?
-  email          String?
-  address        String?
-  totalCredit    Decimal           @default(0) @db.Decimal(10, 2)
-  totalPaid      Decimal           @default(0) @db.Decimal(10, 2)
-  outstandingBalance Decimal       @default(0) @db.Decimal(10, 2)
-  userId         String
-  companyId      String
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-
-  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  orders         CustomerOrder[]
-  payments       CustomerPayment[]
-}
-
-model CustomerOrder {
   id             String   @id @default(cuid())
-  customerId     String
   productId      String
-  quantity       Int
-  unitPrice      Decimal  @db.Decimal(10, 2)
-  totalAmount    Decimal  @db.Decimal(10, 2)
-  isPaid         Boolean  @default(false)
-  paidAmount     Decimal  @default(0) @db.Decimal(10, 2)
-  remainingAmount Decimal @default(0) @db.Decimal(10, 2)
-  orderDate      DateTime
+  companyId      String
+  alertType      String   // LOW_STOCK, OUT_OF_STOCK, CRITICAL, REORDER_POINT
+  message        String?  // Custom alert message
+  currentStock   Int      // Stock level when alert was created
+  thresholdValue Int      // The threshold that triggered this alert
+  isResolved     Boolean  @default(false)
+  resolvedAt     DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  customer       Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([productId, isResolved])
+  @@index([companyId, isResolved])
+}
+
+// New Stock Movement Tracking Model
+model StockMovement {
+  id            String   @id @default(cuid())
+  productId     String
+  movementType  String   // IN, OUT, ADJUSTMENT, TRANSFER, DAMAGED, EXPIRED
+  quantity      Int      // Quantity moved (always positive)
+  previousStock Int      // Stock level before this movement
+  newStock      Int      // Stock level after this movement
+  referenceType String?  // ORDER, MANUAL, RESTOCK, ADJUSTMENT, TRANSFER, DAMAGE, EXPIRY
+  referenceId   String?  // ID of related order, restock, etc.
+  notes         String?  // Additional notes about the movement
+  createdBy     String?  // User who made the change
+  createdAt     DateTime @default(now())
+
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user          User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([productId, createdAt])
+  @@index([referenceType, referenceId])
+}
+
+model Customer {
+  id                 String            @id @default(cuid())
+  name               String
+  phone              String?
+  email              String?
+  address            String?
+  totalCredit        Decimal           @default(0) @db.Decimal(10, 2)
+  totalPaid          Decimal           @default(0) @db.Decimal(10, 2)
+  outstandingBalance Decimal           @default(0) @db.Decimal(10, 2)
+  userId             String
+  companyId          String
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company            Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orders             CustomerOrder[]
+  payments           CustomerPayment[]
+}
+
+model CustomerOrder {
+  id              String   @id @default(cuid())
+  customerId      String
+  productId       String
+  quantity        Int
+  unitPrice       Decimal  @db.Decimal(10, 2)
+  totalAmount     Decimal  @db.Decimal(10, 2)
+  isPaid          Boolean  @default(false)
+  paidAmount      Decimal  @default(0) @db.Decimal(10, 2)
+  remainingAmount Decimal  @default(0) @db.Decimal(10, 2)
+  orderDate       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  customer        Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 }
 
 model CustomerPayment {
@@ -268,4 +314,35 @@ model CustomerPayment {
 
   customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RestockRecord {
+  id          String   @id @default(cuid())
+  productId   String
+  companyId   String
+  userId      String
+  quantity    Int
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserInventory {
+  id                String   @id @default(cuid())
+  userId            String
+  productId         String
+  quantityReceived  Int      // Total quantity received from approved orders
+  quantityUsed      Int      @default(0) // Quantity given as credit to customers
+  quantityAvailable Int      // Available quantity (received - used)
+  lastUpdated       DateTime @default(now()) @updatedAt
+  createdAt         DateTime @default(now())
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
 }

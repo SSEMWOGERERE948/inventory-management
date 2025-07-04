@@ -9,7 +9,8 @@ import { RecentActivity } from "@/components/dashboard/recent-activity"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Package, Plus } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Package, Plus, AlertTriangle, ShoppingCart, DollarSign } from "lucide-react"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 
 interface Order {
@@ -52,6 +53,20 @@ interface Activity {
   status: "pending" | "approved" | "completed" | "rejected"
 }
 
+interface InventoryData {
+  totalProducts: number
+  productsInStock: number
+  outOfStockProducts: number
+  lowStockProducts: number
+  totalQuantityAvailable: number
+  inventoryValue: number
+}
+
+interface CustomerData {
+  totalCustomers: number
+  activeCustomers: number
+}
+
 export default function DashboardPage() {
   const { data: session } = useSession()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
@@ -60,6 +75,8 @@ export default function DashboardPage() {
   const [payments, setPayments] = useState<Payment[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [dashboardStats, setDashboardStats] = useState<any>(null)
+  const [inventory, setInventory] = useState<InventoryData | null>(null)
+  const [customers, setCustomers] = useState<CustomerData | null>(null)
   const [stats, setStats] = useState({
     activeOrders: 0,
     monthlyExpenses: 0,
@@ -92,6 +109,12 @@ export default function DashboardPage() {
       setPayments(paymentsData)
       setExpenses(expensesData)
       setDashboardStats(statsData)
+
+      // Set inventory and customer data for non-admin users
+      if (statsData && session?.user.role !== "ADMIN") {
+        setInventory(statsData.inventory || null)
+        setCustomers(statsData.customers || null)
+      }
 
       // Calculate user stats
       const activeOrders = ordersData.filter((order: Order) =>
@@ -164,7 +187,7 @@ export default function DashboardPage() {
         id: `order-${order.id}`,
         type: "order",
         title: `Order ${order.status.toLowerCase()}`,
-        description: `Order ${order.id.slice(-8)} with ${itemCount} items - $${Number(order.totalAmount).toFixed(2)}`,
+        description: `Order ${order.id.slice(-8)} with ${itemCount} items - UGX${Number(order.totalAmount).toFixed(2)}`,
         timestamp: new Date(order.createdAt),
         status: order.status.toLowerCase() as Activity["status"],
       })
@@ -176,7 +199,7 @@ export default function DashboardPage() {
         id: `payment-${payment.id}`,
         type: "payment",
         title: "Payment Recorded",
-        description: `${payment.description} - ugx${Number(payment.amount).toFixed(2)}`,
+        description: `${payment.description} - UGX${Number(payment.amount).toFixed(2)}`,
         timestamp: new Date(payment.createdAt),
         status: "completed",
       })
@@ -188,7 +211,7 @@ export default function DashboardPage() {
         id: `expense-${expense.id}`,
         type: "stock",
         title: "Expense Added",
-        description: `${expense.description} - ugx${Number(expense.amount).toFixed(2)}`,
+        description: `${expense.description} - UGX${Number(expense.amount).toFixed(2)}`,
         timestamp: new Date(expense.createdAt),
         status: "completed",
       })
@@ -222,6 +245,7 @@ export default function DashboardPage() {
 
   const expenseData = generateChartData()
   const recentActivities = generateRecentActivities()
+
   const myOrders = orders.slice(0, 3).map((order) => ({
     id: order.id,
     items: order.items.reduce((total, item) => total + item.quantity, 0),
@@ -250,6 +274,20 @@ export default function DashboardPage() {
               <h1 className="text-xl sm:text-2xl font-bold mb-2">Welcome back, {user.name.split(" ")[0]}!</h1>
               <p className="text-blue-100 dark:text-blue-200">Here's what's happening with your account today.</p>
             </div>
+
+            {/* Inventory Alert */}
+            {inventory && (inventory.lowStockProducts > 0 || inventory.outOfStockProducts > 0) && (
+              <Alert className="border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-900/20">
+                <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                  Inventory Alert:{" "}
+                  {inventory.outOfStockProducts > 0 && (
+                    <span className="font-medium">{inventory.outOfStockProducts} products out of stock, </span>
+                  )}
+                  {inventory.lowStockProducts > 0 && <span>{inventory.lowStockProducts} products low on stock.</span>}
+                </AlertDescription>
+              </Alert>
+            )}
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
@@ -293,18 +331,19 @@ export default function DashboardPage() {
                   />
                   <StatsCard
                     title="Total Payments"
-                    value={loading ? "..." : `ugx${dashboardStats.totalPayments.toLocaleString()}`}
+                    value={loading ? "..." : `UGX${dashboardStats.totalPayments.toLocaleString()}`}
                     description="Total payments received"
                     className="border-l-4 border-l-emerald-400"
                   />
                   <StatsCard
                     title="Total Expenses"
-                    value={loading ? "..." : `ugx${dashboardStats.totalExpenses.toLocaleString()}`}
+                    value={loading ? "..." : `UGX${dashboardStats.totalExpenses.toLocaleString()}`}
                     description="Total expenses recorded"
                     className="border-l-4 border-l-rose-400"
                   />
                 </>
               )}
+
               {session?.user.role !== "ADMIN" && (
                 <>
                   <StatsCard
@@ -315,13 +354,13 @@ export default function DashboardPage() {
                   />
                   <StatsCard
                     title="Monthly Expenses"
-                    value={loading ? "..." : `ugx${stats.monthlyExpenses.toLocaleString()}`}
+                    value={loading ? "..." : `UGX${stats.monthlyExpenses.toLocaleString()}`}
                     change={{ value: 8, type: "increase" }}
                     description="This month"
                   />
                   <StatsCard
                     title="Total Payments"
-                    value={loading ? "..." : `ugx${stats.totalPayments.toLocaleString()}`}
+                    value={loading ? "..." : `UGX${stats.totalPayments.toLocaleString()}`}
                     change={{ value: 12, type: "increase" }}
                     description="Recorded payments"
                   />
@@ -334,6 +373,47 @@ export default function DashboardPage() {
                 </>
               )}
             </div>
+
+            {/* Inventory Overview - Only for non-admin users */}
+            {session?.user.role !== "ADMIN" && inventory && inventory.totalProducts > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Package className="h-5 w-5" />
+                    Inventory Overview
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="text-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                      <Package className="w-8 h-8 text-blue-600 mx-auto mb-2" />
+                      <p className="text-2xl font-bold text-blue-600">{inventory.totalProducts}</p>
+                      <p className="text-sm text-muted-foreground">Total Products</p>
+                    </div>
+
+                    <div className="text-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                      <ShoppingCart className="w-8 h-8 text-green-600 mx-auto mb-2" />
+                      <p className="text-2xl font-bold text-green-600">{inventory.totalQuantityAvailable}</p>
+                      <p className="text-sm text-muted-foreground">Items Available</p>
+                    </div>
+
+                    <div className="text-center p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+                      <AlertTriangle className="w-8 h-8 text-yellow-600 mx-auto mb-2" />
+                      <p className="text-2xl font-bold text-yellow-600">{inventory.lowStockProducts}</p>
+                      <p className="text-sm text-muted-foreground">Low Stock</p>
+                    </div>
+
+                    <div className="text-center p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
+                      <DollarSign className="w-8 h-8 text-emerald-600 mx-auto mb-2" />
+                      <p className="text-2xl font-bold text-emerald-600">
+                        UGX{inventory.inventoryValue.toLocaleString()}
+                      </p>
+                      <p className="text-sm text-muted-foreground">Inventory Value</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Orders and Actions */}
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -365,10 +445,11 @@ export default function DashboardPage() {
                               <div>
                                 <p className="font-medium">{order.id.slice(-8)}</p>
                                 <p className="text-sm text-muted-foreground">
-                                  {order.items} items • ugx{order.total.toFixed(2)}
+                                  {order.items} items • UGX{order.total.toFixed(2)}
                                 </p>
                               </div>
                             </div>
+
                             <div className="text-right space-y-1">
                               <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
                               <p className="text-xs text-muted-foreground">{order.date.toLocaleDateString()}</p>
@@ -398,6 +479,14 @@ export default function DashboardPage() {
                     <div className="font-medium text-sm">Add Expense</div>
                     <div className="text-xs text-muted-foreground">Log business expense</div>
                   </button>
+                  {customers && customers.totalCustomers > 0 && (
+                    <button className="w-full p-3 text-left rounded-lg border border-border hover:bg-accent transition-colors">
+                      <div className="font-medium text-sm">Manage Customers</div>
+                      <div className="text-xs text-muted-foreground">
+                        {customers.totalCustomers} customers • {customers.activeCustomers} active
+                      </div>
+                    </button>
+                  )}
                   <button className="w-full p-3 text-left rounded-lg border border-border hover:bg-accent transition-colors">
                     <div className="font-medium text-sm">View My Performance</div>
                     <div className="text-xs text-muted-foreground">See sales metrics</div>

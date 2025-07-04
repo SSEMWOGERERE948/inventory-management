@@ -5,18 +5,18 @@ import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET() {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session) {
+    if (!session || session.user.role !== "COMPANY_DIRECTOR") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const product = await prisma.product.findFirst({
+    const products = await prisma.product.findMany({
       where: {
-        id: params.id,
         companyId: session.user.companyId,
+        isActive: true,
       },
       include: {
         category: {
@@ -34,67 +34,79 @@ export async function GET(request: Request, { params }: { params: { id: string }
         _count: {
           select: {
             orderItems: true,
+            customerOrders: true,
+          },
+        },
+        stockAlerts: {
+          where: {
+            isResolved: false,
+          },
+          select: {
+            id: true,
+            alertType: true,
+            message: true,
+            createdAt: true,
           },
         },
       },
+      orderBy: {
+        createdAt: "desc",
+      },
     })
 
-    if (!product) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 })
-    }
+    // Add calculated fields
+    const productsWithAnalytics = products.map((product) => ({
+      ...product,
+      totalSales: product._count.orderItems + product._count.customerOrders,
+      stockStatus:
+        product.quantity <= 0 ? "OUT_OF_STOCK" : product.quantity <= product.minStock ? "LOW_STOCK" : "IN_STOCK",
+      hasActiveAlerts: product.stockAlerts.length > 0,
+    }))
 
-    return NextResponse.json(product)
+    return NextResponse.json(productsWithAnalytics)
   } catch (error) {
-    console.error("Error fetching product:", error)
+    console.error("Error fetching products:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions)
 
-    if (!session) {
+    if (!session || session.user.role !== "COMPANY_DIRECTOR") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const body = await request.json()
     const { name, description, sku, price, quantity, minStock, maxStock, categoryId } = body
 
-    // Check if product exists and belongs to user's company
-    const existingProduct = await prisma.product.findFirst({
-      where: {
-        id: params.id,
-        companyId: session.user.companyId,
-      },
+    // Validate required fields
+    if (!name || !sku || price === undefined || quantity === undefined) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    }
+
+    // Check if SKU already exists
+    const existingSku = await prisma.product.findUnique({
+      where: { sku },
     })
 
-    if (!existingProduct) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 })
+    if (existingSku) {
+      return NextResponse.json({ error: "SKU already exists" }, { status: 400 })
     }
 
-    // Check if SKU is being changed and if it already exists
-    if (sku && sku !== existingProduct.sku) {
-      const existingSku = await prisma.product.findUnique({
-        where: { sku },
-      })
-
-      if (existingSku) {
-        return NextResponse.json({ error: "SKU already exists" }, { status: 400 })
-      }
-    }
-
-    const product = await prisma.product.update({
-      where: { id: params.id },
+    const product = await prisma.product.create({
       data: {
         name,
         description,
         sku,
-        price: price ? Number.parseFloat(price) : undefined,
-        quantity: quantity !== undefined ? Number.parseInt(quantity) : undefined,
-        minStock: minStock !== undefined ? Number.parseInt(minStock) : undefined,
+        price: Number.parseFloat(price),
+        quantity: Number.parseInt(quantity),
+        minStock: Number.parseInt(minStock) || 10,
         maxStock: maxStock ? Number.parseInt(maxStock) : null,
+        companyId: session.user.companyId,
         categoryId: categoryId || null,
+        createdById: session.user.id,
       },
       include: {
         category: {
@@ -109,68 +121,27 @@ export async function PATCH(request: Request, { params }: { params: { id: string
             name: true,
           },
         },
-        _count: {
-          select: {
-            orderItems: true,
-          },
-        },
       },
     })
+
+    // Create stock alert if quantity is below minimum
+    if (Number.parseInt(quantity) <= Number.parseInt(minStock || 10)) {
+      await prisma.stockAlert.create({
+        data: {
+          productId: product.id,
+          companyId: session.user.companyId,
+          alertType: Number.parseInt(quantity) === 0 ? "CRITICAL" : "HIGH",
+          message:
+            Number.parseInt(quantity) === 0
+              ? `${product.name} is out of stock!`
+              : `${product.name} is below minimum stock level (${quantity} remaining)`,
+        },
+      })
+    }
 
     return NextResponse.json(product)
   } catch (error) {
-    console.error("Error updating product:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
-  }
-}
-
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
-  try {
-    const session = await getServerSession(authOptions)
-
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    // Check if product exists and belongs to user's company
-    const existingProduct = await prisma.product.findFirst({
-      where: {
-        id: params.id,
-        companyId: session.user.companyId,
-      },
-    })
-
-    if (!existingProduct) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 })
-    }
-
-    // Check if product has any order items
-    const orderItemsCount = await prisma.orderRequestItem.count({
-      where: {
-        productId: params.id,
-      },
-    })
-
-    if (orderItemsCount > 0) {
-      // Instead of deleting, mark as inactive
-      const product = await prisma.product.update({
-        where: { id: params.id },
-        data: { isActive: false },
-      })
-      return NextResponse.json({
-        message: "Product has been deactivated instead of deleted due to existing orders",
-        product,
-      })
-    }
-
-    // Safe to delete
-    await prisma.product.delete({
-      where: { id: params.id },
-    })
-
-    return NextResponse.json({ message: "Product deleted successfully" })
-  } catch (error) {
-    console.error("Error deleting product:", error)
+    console.error("Error creating product:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
